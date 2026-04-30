@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 
-DATA_PATH = "conso.csv"
+DATA_PATH = "data/conso.csv"
 EXCEL_SOURCE = "CONSO_CUPRA.xlsx"
 
 def load_data():

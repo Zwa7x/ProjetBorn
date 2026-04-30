@@ -1,7 +1,7 @@
 import streamlit as st
 from utils import load_data
 
-st.set_page_config(page_title="Suivi VE", layout="wide")
+st.set_page_config(page_title="Suivi CUPRA Born", layout="wide")
 
 st.title("Suivi de consommation – CUPRA Born")
 

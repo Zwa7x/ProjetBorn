@@ -33,6 +33,7 @@ def clean_columns(df):
         "station": "Station",
         "DEBIT": "kWh",
         "kwh": "kWh",
+        "€": "Cout",
         "COUT": "Cout",
         "cout": "Cout"
     })

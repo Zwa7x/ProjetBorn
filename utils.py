@@ -40,7 +40,7 @@ def clean_columns(df):
 
     # Conversion des types
     if "Date" in df.columns:
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df["Date"] = pd.to_datetime(df["Date"], format="mixed", errors="coerce")
 
     if "kWh" in df.columns:
         df["kWh"] = pd.to_numeric(df["kWh"], errors="coerce")

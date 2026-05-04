@@ -15,8 +15,11 @@ def clean_columns(df):
         "€": "Cout",
         "COUT": "Cout",
         "cout": "Cout",
-        "Prix du KwH": "Prix du KWh",
-        "Prix du kWh": "Prix du KWh"
+        "Prix du KwH": "Prix_du_kWh",
+        "Prix du KWh": "Prix_du_kWh",
+        "Prix du kWh": "Prix_du_kWh",
+        "Prix du KW/H": "Prix_du_kWh",
+        "Prix du kW/h": "Prix_du_kWh"
     })
 
     if "Date" in df.columns:

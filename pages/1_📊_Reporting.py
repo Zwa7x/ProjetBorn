@@ -19,9 +19,9 @@ st.plotly_chart(fig1, use_container_width=True)
 # Graphique 2 : coût par station
 fig2 = px.bar(
     df,
-    x="Station",
+    x="LIEUX",
     y="Cout",
-    title="Coût total par station (€)"
+    title="Coût total par station / lieu (€)"
 )
 
 st.plotly_chart(fig2, use_container_width=True)

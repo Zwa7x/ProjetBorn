@@ -208,7 +208,7 @@ if len(cout_region) > 0:
         hole=0.5,
         title="Répartition du coût total par région"
     )
-    fig_region.update_traces(textinfo='label+value')
+    fig_region.update_traces(textinfo='value')
     st.plotly_chart(fig_region, use_container_width=True)
 
 # --- DONUT : TEMPS PAR TYPE DE BORNE ---

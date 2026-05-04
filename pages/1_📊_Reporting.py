@@ -40,9 +40,16 @@ if lieu_filter != "Tous":
 
 st.divider()
 
-# --- RÉSUMÉ GLOBAL (HTML CUPRA) ---
+# --- RÉSUMÉ GLOBAL ---
 st.subheader("📌 Résumé global")
 
+# 1) On calcule les valeurs AVANT d'appeler card()
+cout_total = df_filtered["Cout"].sum()
+prix_kwh_global = df_filtered["Prix du KwH"].mean()
+vitesse_moyenne_global = df_filtered["Vitesse kw/min"].mean() if "Vitesse kw/min" in df_filtered.columns else None
+temps_total = df_filtered["TEMPS en min"].sum() if "TEMPS en min" in df_filtered.columns else None
+
+# 2) On définit la fonction card()
 def card(label, value, accent=None):
     return f"""
     <div style='padding:14px; border-radius:10px; background-color:#1a1a1a; color:#e6e6e6;'>
@@ -52,6 +59,7 @@ def card(label, value, accent=None):
     </div>
     """
 
+# 3) On affiche les cartes
 colA, colB, colC, colD = st.columns(4)
 
 colA.markdown(card("Coût total (€)", f"{cout_total:.2f}"), unsafe_allow_html=True)
@@ -60,7 +68,6 @@ colC.markdown(card("Vitesse moyenne", f"{vitesse_moyenne_global:.2f} kw/min" if 
 colD.markdown(card("Temps total", f"{temps_total:.1f} min" if temps_total else "N/A"), unsafe_allow_html=True)
 
 st.divider()
-
 
 # --- INDICATEURS CLÉS ---
 st.subheader("📈 Indicateurs clés")

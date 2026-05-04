@@ -31,7 +31,7 @@ def clean_columns(df):
         "date": "Date",
         "STATION": "Station",
         "station": "Station",
-        "DEBIT": "kWh",
+        "DEBIT": "Débit",
         "kwh": "kWh",
         "€": "Cout",
         "COUT": "Cout",

@@ -43,6 +43,13 @@ if lieu_filter != "Tous":
 
 st.divider()
 
+df_filtered = df_temp.copy()
+if lieu_filter != "Tous":
+    df_filtered = df_filtered[df_filtered["LIEUX"] == lieu_filter]
+
+
+st.divider()
+
 # --- INDICATEURS CLÉS ---
 st.subheader("📈 Indicateurs clés")
 

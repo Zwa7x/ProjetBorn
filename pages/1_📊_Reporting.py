@@ -10,7 +10,7 @@ if len(df) == 0:
     st.warning("Aucune donnée disponible.")
     st.stop()
 
-df["€/kWh"] = df["Cout"] / df["kWh"]
+df["€/min"] = df["Cout"] / df["TEMPS en min"]
 
 st.subheader("📈 Évolution des kWh chargés")
 fig1 = px.line(df, x="Date", y="Puissance", title="Évolution de la puissance délivrée (kW)")

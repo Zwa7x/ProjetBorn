@@ -197,3 +197,12 @@ if len(df_filtered) > 0:
         title="Coût total par mois (€)"
     )
     st.plotly_chart(fig4, use_container_width=True)
+
+
+if "export_pdf" in st.session_state and st.session_state.export_pdf:
+    st.info("📄 Génération du PDF en cours…")
+
+    # TODO : appeler generate_pdf(fig_low, fig_high, fig_fast, fig_sessions, fig_region, fig_temps, fig4)
+    # TODO : proposer un st.download_button
+
+    st.session_state.export_pdf = False

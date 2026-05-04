@@ -24,6 +24,18 @@ with col1:
 with col2:
     if st.button("🔄 Recharger les données"):
         st.rerun()
+import os
+
+st.subheader("🗑️ Maintenance")
+
+if st.button("🗑️ Supprimer le fichier CSV (forcer régénération)"):
+    if os.path.exists("data/conso.csv"):
+        os.remove("data/conso.csv")
+        st.success("Fichier CSV supprimé. Il sera recréé automatiquement au prochain chargement.")
+        st.rerun()
+    else:
+        st.info("Aucun fichier CSV à supprimer.")
+
 
 st.info("Vous pouvez ajouter, modifier ou supprimer des lignes directement dans le tableau.")
 

@@ -23,7 +23,7 @@ with col1:
 
 with col2:
     if st.button("🔄 Recharger les données"):
-        st.experimental_rerun()
+        st.rerun()
 
 st.info("Vous pouvez ajouter, modifier ou supprimer des lignes directement dans le tableau.")
 

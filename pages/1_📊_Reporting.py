@@ -43,45 +43,45 @@ if lieu_filter != "Tous":
 
 st.divider()
     
-    # --- RÉSUMÉ GLOBAL ---
-    st.subheader("📌 Résumé global")
-    
-    # Coût total
-    cout_total = df_filtered["Cout"].sum()
-    
-    # Coût moyen global
-    cout_moyen_global = df_filtered["Cout"].mean()
-    
-    # Vitesse moyenne globale
-    if "Vitesse kw/min" in df_filtered.columns:
-        vitesse_moyenne_global = df_filtered["Vitesse kw/min"].mean()
-    else:
-        vitesse_moyenne_global = None
-    
-    # Nombre total de sessions
-    sessions_total = len(df_filtered)
-    
-    # Temps total passé (si présent)
-    if "TEMPS" in df_filtered.columns:
-        temps_total = df_filtered["TEMPS"].sum()
-    else:
-        temps_total = None
-    
-    # Affichage en colonnes
-    colA, colB, colC, colD = st.columns(4)
-    
-    colA.metric("Coût total", f"{cout_total:.2f} €")
-    colB.metric("Coût moyen", f"{cout_moyen_global:.2f} €")
-    
-    if vitesse_moyenne_global is not None:
-        colC.metric("Vitesse moyenne", f"{vitesse_moyenne_global:.2f} kw/min")
-    else:
-        colC.metric("Vitesse moyenne", "N/A")
+# --- RÉSUMÉ GLOBAL ---
+st.subheader("📌 Résumé global")
 
-    if temps_total is not None:
-        colD.metric("Temps total", f"{temps_total:.1f} min")
-    else:
-        colD.metric("Temps total", "N/A")
+# Coût total
+cout_total = df_filtered["Cout"].sum()
+
+# Coût moyen global
+cout_moyen_global = df_filtered["Cout"].mean()
+
+# Vitesse moyenne globale
+if "Vitesse kw/min" in df_filtered.columns:
+    vitesse_moyenne_global = df_filtered["Vitesse kw/min"].mean()
+else:
+    vitesse_moyenne_global = None
+
+# Nombre total de sessions
+sessions_total = len(df_filtered)
+
+# Temps total passé (si présent)
+if "TEMPS" in df_filtered.columns:
+    temps_total = df_filtered["TEMPS"].sum()
+else:
+    temps_total = None
+
+# Affichage en colonnes
+colA, colB, colC, colD = st.columns(4)
+
+colA.metric("Coût total", f"{cout_total:.2f} €")
+colB.metric("Coût moyen", f"{cout_moyen_global:.2f} €")
+
+if vitesse_moyenne_global is not None:
+    colC.metric("Vitesse moyenne", f"{vitesse_moyenne_global:.2f} kw/min")
+else:
+    colC.metric("Vitesse moyenne", "N/A")
+
+if temps_total is not None:
+    colD.metric("Temps total", f"{temps_total:.1f} min")
+else:
+    colD.metric("Temps total", "N/A")
 
 st.divider()
 

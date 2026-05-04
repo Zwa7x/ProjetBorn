@@ -86,6 +86,8 @@ else:
 st.divider()
 
 
+st.write(df_filtered.columns.tolist())
+st.divider()
 
 # --- INDICATEURS CLÉS ---
 st.subheader("📈 Indicateurs clés")

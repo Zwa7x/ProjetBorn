@@ -7,41 +7,36 @@ st.header("📊 Reporting")
 
 df = load_data()
 
-# --- FILTRES ---
+# --- FILTRES EN CASCADE ---
 st.subheader("🔍 Filtres")
 
 regions = df["REGION"].dropna().unique()
-lieux = df["LIEUX"].dropna().unique()
+region_filter = st.selectbox("Région", ["Toutes"] + list(regions))
 
-col1, col2 = st.columns(2)
-
-with col1:
-    region_filter = st.selectbox("Filtrer par région", ["Toutes"] + list(regions))
-
-with col2:
-    lieu_filter = st.selectbox("Filtrer par lieu", ["Tous"] + list(lieux))
-
-df_filtered = df.copy()
-
+df_temp = df.copy()
 if region_filter != "Toutes":
-    df_filtered = df_filtered[df_filtered["REGION"] == region_filter]
+    df_temp = df_temp[df_temp["REGION"] == region_filter]
 
+lieux = df_temp["LIEUX"].dropna().unique()
+lieu_filter = st.selectbox("Lieu", ["Tous"] + list(lieux))
+
+df_filtered = df_temp.copy()
 if lieu_filter != "Tous":
     df_filtered = df_filtered[df_filtered["LIEUX"] == lieu_filter]
 
 st.divider()
 
-# --- INDICATEURS ---
+# --- INDICATEURS CLÉS ---
 st.subheader("📈 Indicateurs clés")
 
 col1, col2, col3 = st.columns(3)
 
-# Station la moins chère
+# Lieu le moins cher
 cout_par_lieu = df_filtered.groupby("LIEUX")["Cout"].sum().sort_values()
 if len(cout_par_lieu) > 0:
     col1.metric("Lieu le moins cher", cout_par_lieu.index[0], f"{cout_par_lieu.iloc[0]:.2f} €")
 
-# Station la plus rapide
+# Lieu le plus rapide
 puissance_par_lieu = df_filtered.groupby("LIEUX")["Puissance"].mean().sort_values(ascending=False)
 if len(puissance_par_lieu) > 0:
     col2.metric("Lieu le plus rapide", puissance_par_lieu.index[0], f"{puissance_par_lieu.iloc[0]:.1f} kW")
@@ -51,56 +46,92 @@ col3.metric("Nombre de sessions", len(df_filtered))
 
 st.divider()
 
-# --- GRAPHIQUE 1 : Évolution de la puissance ---
-st.subheader("📉 Évolution de la puissance délivrée")
+# --- TOP 10 MOINS CHÈRES ---
+st.subheader("💚 Top 10 des stations les moins chères")
 
-fig1 = px.line(
-    df_filtered,
-    x="Date",
-    y="Puissance",
-    title="Évolution de la puissance (kW)"
-)
+if len(cout_par_lieu) > 0:
+    top10_low = cout_par_lieu.head(10)
+    fig_low = px.pie(
+        names=top10_low.index,
+        values=top10_low.values,
+        hole=0.5,
+        title="Top 10 des stations les moins chères (coût total)"
+    )
+    st.plotly_chart(fig_low, use_container_width=True)
+else:
+    st.info("Pas assez de données pour ce graphique.")
 
-st.plotly_chart(fig1, use_container_width=True)
+# --- TOP 10 PLUS CHÈRES ---
+st.subheader("❤️ Top 10 des stations les plus chères")
 
-# --- GRAPHIQUE 2 : Coût total par lieu ---
-st.subheader("💶 Coût total par lieu (tri décroissant)")
+cout_par_lieu_high = df_filtered.groupby("LIEUX")["Cout"].sum().sort_values(ascending=False)
+if len(cout_par_lieu_high) > 0:
+    top10_high = cout_par_lieu_high.head(10)
+    fig_high = px.pie(
+        names=top10_high.index,
+        values=top10_high.values,
+        hole=0.5,
+        title="Top 10 des stations les plus chères (coût total)"
+    )
+    st.plotly_chart(fig_high, use_container_width=True)
+else:
+    st.info("Pas assez de données pour ce graphique.")
+
+# --- TOP 10 PLUS RAPIDES ---
+st.subheader("⚡ Top 10 des stations les plus rapides")
+
+puissance_par_lieu_full = df_filtered.groupby("LIEUX")["Puissance"].mean().sort_values(ascending=False)
+if len(puissance_par_lieu_full) > 0:
+    top10_fast = puissance_par_lieu_full.head(10)
+    fig_fast = px.pie(
+        names=top10_fast.index,
+        values=top10_fast.values,
+        hole=0.5,
+        title="Top 10 des stations les plus rapides (Puissance moyenne en kW)"
+    )
+    st.plotly_chart(fig_fast, use_container_width=True)
+else:
+    st.info("Pas assez de données pour ce graphique.")
+
+st.divider()
+
+# --- COÛT TOTAL PAR LIEU (BAR) ---
+st.subheader("📊 Coût total par lieu (tri décroissant)")
 
 df_grouped = df_filtered.groupby("LIEUX")["Cout"].sum().sort_values(ascending=False).reset_index()
 
-fig2 = px.bar(
-    df_grouped,
-    x="LIEUX",
-    y="Cout",
-    title="Coût total par lieu (€)"
-)
+if len(df_grouped) > 0:
+    fig2 = px.bar(
+        df_grouped,
+        x="LIEUX",
+        y="Cout",
+        title="Coût total par lieu (€)"
+    )
+    st.plotly_chart(fig2, use_container_width=True)
+else:
+    st.info("Pas assez de données pour ce graphique.")
 
-st.plotly_chart(fig2, use_container_width=True)
+st.divider()
 
-# --- TOP 10 DONUT ---
-st.subheader("🏆 Top 10 des lieux les plus utilisés")
-
-top10 = df_filtered["LIEUX"].value_counts().head(10)
-
-fig3 = px.pie(
-    names=top10.index,
-    values=top10.values,
-    hole=0.5,
-    title="Top 10 des lieux les plus utilisés"
-)
-
-st.plotly_chart(fig3, use_container_width=True)
-
-# --- GRAPHIQUE MENSUEL ---
+# --- ÉVOLUTION MENSUELLE DU COÛT ---
 st.subheader("📅 Évolution mensuelle du coût")
 
-df_filtered["Mois"] = df_filtered["Date"].dt.to_period("M").astype(str)
+# S'assurer que Date est bien datetime
+if not pd.api.types.is_datetime64_any_dtype(df_filtered["Date"]):
+    df_filtered["Date"] = pd.to_datetime(df_filtered["Date"], errors="coerce")
 
-fig4 = px.line(
-    df_filtered.groupby("Mois")["Cout"].sum().reset_index(),
-    x="Mois",
-    y="Cout",
-    title="Coût total par mois (€)"
-)
+df_filtered = df_filtered.dropna(subset=["Date"])
 
-st.plotly_chart(fig4, use_container_width=True)
+if len(df_filtered) > 0:
+    df_filtered["Mois"] = df_filtered["Date"].dt.to_period("M").astype(str)
+    df_mois = df_filtered.groupby("Mois")["Cout"].sum().reset_index()
+
+    fig4 = px.line(
+        df_mois,
+        x="Mois",
+        y="Cout",
+        title="Coût total par mois (€)"
+    )
+    st.plotly_chart(fig4, use_container_width=True)
+else:
+    st.info("Pas assez de données datées pour afficher l'évolution mensuelle.")

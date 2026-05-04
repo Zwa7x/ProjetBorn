@@ -93,9 +93,14 @@ st.subheader("📈 Indicateurs clés")
 col1, col2, col3 = st.columns(3)
 
 # Coût moyen le plus bas
-cout_moyen = df_filtered.groupby("LIEUX")["Cout"].mean().sort_values()
+prix_kwh_moyen_all = df_filtered.groupby("LIEUX")["Prix du kWh"].mean().sort_values()
 if len(cout_moyen) > 0:
-    col1.metric("Lieu le moins cher (moyenne)", cout_moyen.index[0], f"{cout_moyen.iloc[0]:.2f} €")
+    col1.metric(
+    "Station la moins chère (€/kWh)",
+    prix_kwh_moyen_all.index[0],
+    f"{prix_kwh_moyen_all.iloc[0]:.3f} €/kWh"
+)
+
 
 # Vitesse moyenne la plus élevée
 if "Vitesse kw/min" in df_filtered.columns:
@@ -110,30 +115,50 @@ col3.metric("Nombre de sessions", len(df_filtered))
 
 st.divider()
 
-# --- TOP 10 MOINS CHÈRES ---
-st.subheader("💚 Top 10 des stations les moins chères (coût moyen)")
+# --- TOP 10 MOINS CHÈRES (PRIX MOYEN DU KWH) ---
+st.subheader("💚 Top 10 des stations les moins chères (€/kWh)")
 
-if len(cout_moyen) > 0:
-    top10_low = cout_moyen.head(10).reset_index()
-    fig_low = px.bar(
-        top10_low, x="Cout", y="LIEUX", orientation="h",
-        title="Top 10 des stations les moins chères (coût moyen)",
-        labels={"Cout": "Coût moyen (€)", "LIEUX": "Station"}
-    )
-    st.plotly_chart(fig_low, use_container_width=True)
+prix_kwh_moyen = (
+    df_filtered.groupby("LIEUX")["Prix du kWh"]
+    .mean()
+    .sort_values()
+    .head(10)
+    .reset_index()
+)
 
-# --- TOP 10 PLUS CHÈRES ---
-st.subheader("❤️ Top 10 des stations les plus chères (coût moyen)")
+fig_low = px.bar(
+    prix_kwh_moyen,
+    x="Prix du kWh",
+    y="LIEUX",
+    orientation="h",
+    title="Top 10 des stations les moins chères (prix moyen du kWh)",
+    labels={"Prix du kWh": "Prix moyen du kWh (€)", "LIEUX": "Station"}
+)
 
-cout_moyen_high = df_filtered.groupby("LIEUX")["Cout"].mean().sort_values(ascending=False)
-if len(cout_moyen_high) > 0:
-    top10_high = cout_moyen_high.head(10).reset_index()
-    fig_high = px.bar(
-        top10_high, x="Cout", y="LIEUX", orientation="h",
-        title="Top 10 des stations les plus chères (coût moyen)",
-        labels={"Cout": "Coût moyen (€)", "LIEUX": "Station"}
-    )
-    st.plotly_chart(fig_high, use_container_width=True)
+st.plotly_chart(fig_low, use_container_width=True)
+
+# --- TOP 10 PLUS CHÈRES (PRIX MOYEN DU KWH) ---
+st.subheader("❤️ Top 10 des stations les plus chères (€/kWh)")
+
+prix_kwh_moyen_high = (
+    df_filtered.groupby("LIEUX")["Prix du kWh"]
+    .mean()
+    .sort_values(ascending=False)
+    .head(10)
+    .reset_index()
+)
+
+fig_high = px.bar(
+    prix_kwh_moyen_high,
+    x="Prix du kWh",
+    y="LIEUX",
+    orientation="h",
+    title="Top 10 des stations les plus chères (prix moyen du kWh)",
+    labels={"Prix du kWh": "Prix moyen du kWh (€)", "LIEUX": "Station"}
+)
+
+st.plotly_chart(fig_high, use_container_width=True)
+
 
 # --- TOP 10 PLUS RAPIDES ---
 st.subheader("⚡ Top 10 des stations les plus rapides (vitesse moyenne)")

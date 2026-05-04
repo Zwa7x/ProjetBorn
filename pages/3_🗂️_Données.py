@@ -37,7 +37,7 @@ descriptions = {
     "Télécharger l'Excel": "Télécharge le fichier Excel d'origine (CONSO_CUPRA.xlsx).",
     "Importer un nouveau fichier Excel": "Importe un nouveau fichier Excel et régénère le CSV.",
     "Sauvegarder une copie du CSV": "Télécharge une copie du CSV comme sauvegarde.",
-    "Supprimer le fichier CSV (forcer régénération)": "Supprime le CSV pour le recréer à partir de l'Excel."
+    "ADMIN - Supprimer le fichier CSV (forcer régénération)": "Supprime le CSV pour le recréer à partir de l'Excel."
 }
 
 actions = ["Aucune"] + list(descriptions.keys())

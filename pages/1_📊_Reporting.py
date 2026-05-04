@@ -31,7 +31,7 @@ st.subheader("📈 Indicateurs clés")
 
 col1, col2, col3 = st.columns(3)
 
-# Lieu le moins cher (coût moyen)
+# Coût moyen le plus bas
 cout_moyen = df_filtered.groupby("LIEUX")["Cout"].mean().sort_values()
 if len(cout_moyen) > 0:
     col1.metric(
@@ -40,17 +40,17 @@ if len(cout_moyen) > 0:
         f"{cout_moyen.iloc[0]:.2f} €"
     )
 
-# Lieu le plus rapide (vitesse moyenne)
-if "Vitesse km/min" in df_filtered.columns:
-    vitesse_moyenne = df_filtered.groupby("LIEUX")["Vitesse km/min"].mean().sort_values(ascending=False)
+# Vitesse moyenne la plus élevée
+if "Vitesse kw/min" in df_filtered.columns:
+    vitesse_moyenne = df_filtered.groupby("LIEUX")["Vitesse kw/min"].mean().sort_values(ascending=False)
     if len(vitesse_moyenne) > 0:
         col2.metric(
             "Lieu le plus rapide",
             vitesse_moyenne.index[0],
-            f"{vitesse_moyenne.iloc[0]:.2f} km/min"
+            f"{vitesse_moyenne.iloc[0]:.2f} kw/min"
         )
 else:
-    col2.info("Colonne 'Vitesse km/min' absente.")
+    col2.info("Colonne 'Vitesse kw/min' absente.")
 
 # Nombre de sessions
 col3.metric("Nombre de sessions", len(df_filtered))
@@ -61,55 +61,100 @@ st.divider()
 st.subheader("💚 Top 10 des stations les moins chères (coût moyen)")
 
 if len(cout_moyen) > 0:
-    top10_low = cout_moyen.head(10)
-    fig_low = px.pie(
-        names=top10_low.index,
-        values=top10_low.values,
-        hole=0.5,
-        title="Top 10 des stations les moins chères (coût moyen)"
+    top10_low = cout_moyen.head(10).reset_index()
+    fig_low = px.bar(
+        top10_low,
+        x="Cout",
+        y="LIEUX",
+        orientation="h",
+        title="Top 10 des stations les moins chères (coût moyen)",
+        labels={"Cout": "Coût moyen (€)", "LIEUX": "Station"}
     )
     st.plotly_chart(fig_low, use_container_width=True)
-else:
-    st.info("Pas assez de données pour ce graphique.")
 
 # --- TOP 10 PLUS CHÈRES (COÛT MOYEN) ---
 st.subheader("❤️ Top 10 des stations les plus chères (coût moyen)")
 
 cout_moyen_high = df_filtered.groupby("LIEUX")["Cout"].mean().sort_values(ascending=False)
 if len(cout_moyen_high) > 0:
-    top10_high = cout_moyen_high.head(10)
-    fig_high = px.pie(
-        names=top10_high.index,
-        values=top10_high.values,
-        hole=0.5,
-        title="Top 10 des stations les plus chères (coût moyen)"
+    top10_high = cout_moyen_high.head(10).reset_index()
+    fig_high = px.bar(
+        top10_high,
+        x="Cout",
+        y="LIEUX",
+        orientation="h",
+        title="Top 10 des stations les plus chères (coût moyen)",
+        labels={"Cout": "Coût moyen (€)", "LIEUX": "Station"}
     )
     st.plotly_chart(fig_high, use_container_width=True)
-else:
-    st.info("Pas assez de données pour ce graphique.")
 
-# --- TOP 10 PLUS RAPIDES (VITESSE MOYENNE) ---
+# --- TOP 10 PLUS RAPIDES ---
 st.subheader("⚡ Top 10 des stations les plus rapides (vitesse moyenne)")
 
-if "Vitesse km/min" in df_filtered.columns:
-    vitesse_moyenne_full = df_filtered.groupby("LIEUX")["Vitesse km/min"].mean().sort_values(ascending=False)
+if "Vitesse kw/min" in df_filtered.columns:
+    vitesse_moyenne_full = df_filtered.groupby("LIEUX")["Vitesse kw/min"].mean().sort_values(ascending=False)
     if len(vitesse_moyenne_full) > 0:
-        top10_fast = vitesse_moyenne_full.head(10)
-        fig_fast = px.pie(
-            names=top10_fast.index,
-            values=top10_fast.values,
-            hole=0.5,
-            title="Top 10 des stations les plus rapides (km/min)"
+        top10_fast = vitesse_moyenne_full.head(10).reset_index()
+        fig_fast = px.bar(
+            top10_fast,
+            x="Vitesse kw/min",
+            y="LIEUX",
+            orientation="h",
+            title="Top 10 des stations les plus rapides (kw/min)",
+            labels={"Vitesse kw/min": "Vitesse moyenne (kw/min)", "LIEUX": "Station"}
         )
         st.plotly_chart(fig_fast, use_container_width=True)
-    else:
-        st.info("Pas assez de données pour ce graphique.")
 else:
-    st.warning("La colonne 'Vitesse km/min' est absente du dataset.")
+    st.warning("La colonne 'Vitesse kw/min' est absente du dataset.")
 
 st.divider()
 
-# --- COÛT TOTAL PAR LIEU (BAR CHART) ---
+# --- DONUT : RÉPARTITION DES SESSIONS PAR STATION ---
+st.subheader("🧁 Répartition du nombre de sessions par station")
+
+sessions = df_filtered["LIEUX"].value_counts()
+
+if len(sessions) > 0:
+    fig_sessions = px.pie(
+        names=sessions.index,
+        values=sessions.values,
+        hole=0.5,
+        title="Répartition des sessions par station"
+    )
+    st.plotly_chart(fig_sessions, use_container_width=True)
+
+# --- DONUT : RÉPARTITION DU COÛT PAR RÉGION ---
+st.subheader("🧁 Répartition du coût total par région")
+
+cout_region = df_filtered.groupby("REGION")["Cout"].sum()
+
+if len(cout_region) > 0:
+    fig_region = px.pie(
+        names=cout_region.index,
+        values=cout_region.values,
+        hole=0.5,
+        title="Répartition du coût total par région"
+    )
+    st.plotly_chart(fig_region, use_container_width=True)
+
+# --- DONUT : RÉPARTITION DU TEMPS PAR TYPE DE BORNE ---
+st.subheader("🧁 Répartition du temps passé par type de borne")
+
+if "TYPE_BORNE" in df_filtered.columns and "TEMPS" in df_filtered.columns:
+    temps_borne = df_filtered.groupby("TYPE_BORNE")["TEMPS"].sum()
+    fig_temps = px.pie(
+        names=temps_borne.index,
+        values=temps_borne.values,
+        hole=0.5,
+        title="Répartition du temps passé par type de borne"
+    )
+    st.plotly_chart(fig_temps, use_container_width=True)
+else:
+    st.info("Colonnes 'TYPE_BORNE' ou 'TEMPS' absentes.")
+
+st.divider()
+
+# --- COÛT TOTAL PAR LIEU ---
 st.subheader("📊 Coût total par lieu (tri décroissant)")
 
 df_grouped = df_filtered.groupby("LIEUX")["Cout"].sum().sort_values(ascending=False).reset_index()
@@ -117,20 +162,18 @@ df_grouped = df_filtered.groupby("LIEUX")["Cout"].sum().sort_values(ascending=Fa
 if len(df_grouped) > 0:
     fig2 = px.bar(
         df_grouped,
-        x="LIEUX",
-        y="Cout",
+        x="Cout",
+        y="LIEUX",
+        orientation="h",
         title="Coût total par lieu (€)"
     )
     st.plotly_chart(fig2, use_container_width=True)
-else:
-    st.info("Pas assez de données pour ce graphique.")
 
 st.divider()
 
-# --- ÉVOLUTION MENSUELLE DU COÛT ---
+# --- ÉVOLUTION MENSUELLE ---
 st.subheader("📅 Évolution mensuelle du coût")
 
-# Sécurisation du type datetime
 df_filtered["Date"] = pd.to_datetime(df_filtered["Date"], errors="coerce")
 df_filtered = df_filtered.dropna(subset=["Date"])
 
@@ -145,5 +188,3 @@ if len(df_filtered) > 0:
         title="Coût total par mois (€)"
     )
     st.plotly_chart(fig4, use_container_width=True)
-else:
-    st.info("Pas assez de données datées pour afficher l'évolution mensuelle.")

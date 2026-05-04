@@ -25,25 +25,22 @@ def load_data():
     return pd.DataFrame(columns=["Date", "Station", "kWh", "Cout"])
 
 def clean_columns(df):
-    # Normalisation des noms de colonnes
     df = df.rename(columns={
         "DATE": "Date",
-        "date": "Date",
         "STATION": "Station",
-        "station": "Station",
-        "DEBIT": "Débit",
-        "kwh": "kWh",
+        "DEBIT": "Puissance",     # anciennement kWh
+        "Puissance": "Puissance", # si déjà présent
         "€": "Cout",
         "COUT": "Cout",
         "cout": "Cout"
     })
 
-    # Conversion des types
+    # Nettoyage des types
     if "Date" in df.columns:
         df["Date"] = pd.to_datetime(df["Date"], format="mixed", errors="coerce")
 
-    if "kWh" in df.columns:
-        df["kWh"] = pd.to_numeric(df["kWh"], errors="coerce")
+    if "Puissance" in df.columns:
+        df["Puissance"] = pd.to_numeric(df["Puissance"], errors="coerce")
 
     if "Cout" in df.columns:
         df["Cout"] = pd.to_numeric(df["Cout"], errors="coerce")

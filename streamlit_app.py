@@ -15,3 +15,8 @@ col3.metric("Coût total (€)", round(df["Cout"].sum(), 2))
 
 st.subheader("🏠 Accueil – Aperçu des données")
 st.dataframe(df)
+
+st.sidebar.subheader("🎨 Thème")
+theme_choice = st.sidebar.radio("Choisir un thème :", ["Standard", "CUPRA"])
+
+st.session_state.theme_cupra = (theme_choice == "CUPRA")

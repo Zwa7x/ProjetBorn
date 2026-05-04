@@ -21,7 +21,7 @@ st.header("📊 Reporting")
 
 df = load_data()
 
-# --- FILTRES EN CASCADE ---
+# --- FILTRES ---
 st.subheader("🔍 Filtres")
 
 regions = df["REGION"].dropna().unique()
@@ -39,16 +39,13 @@ if lieu_filter != "Tous":
     df_filtered = df_filtered[df_filtered["LIEUX"] == lieu_filter]
 
 st.divider()
-st.write(df_filtered.columns.tolist())
-
-st.divider()
 
 # --- RÉSUMÉ GLOBAL ---
 st.subheader("📌 Résumé global")
 
 cout_total = df_filtered["Cout"].sum()
 cout_moyen_global = df_filtered["Cout"].mean()
-prix_kwh_global = df_filtered["Prix_du_kWh"].mean()
+prix_kwh_global = df_filtered["Prix du KwH"].mean()
 
 if "Vitesse kw/min" in df_filtered.columns:
     vitesse_moyenne_global = df_filtered["Vitesse kw/min"].mean()
@@ -85,7 +82,7 @@ st.subheader("📈 Indicateurs clés")
 col1, col2, col3 = st.columns(3)
 
 prix_kwh_moyen_all = (
-    df_filtered.groupby("LIEUX")["Prix_du_kWh"]
+    df_filtered.groupby("LIEUX")["Prix du KwH"]
     .mean()
     .sort_values()
 )
@@ -122,7 +119,7 @@ st.divider()
 st.subheader("💚 Top 10 des stations les moins chères (€/kWh)")
 
 prix_kwh_moyen = (
-    df_filtered.groupby("LIEUX")["Prix_du_kWh"]
+    df_filtered.groupby("LIEUX")["Prix du KwH"]
     .mean()
     .sort_values()
     .head(10)
@@ -131,11 +128,11 @@ prix_kwh_moyen = (
 
 fig_low = px.bar(
     prix_kwh_moyen,
-    x="Prix_du_kWh",
+    x="Prix du KwH",
     y="LIEUX",
     orientation="h",
     title="Top 10 des stations les moins chères (€/kWh)",
-    labels={"Prix_du_kWh": "Prix moyen du kWh (€)", "LIEUX": "Station"}
+    labels={"Prix du KwH": "Prix moyen du kWh (€)", "LIEUX": "Station"}
 )
 
 st.plotly_chart(fig_low, use_container_width=True)
@@ -144,7 +141,7 @@ st.plotly_chart(fig_low, use_container_width=True)
 st.subheader("❤️ Top 10 des stations les plus chères (€/kWh)")
 
 prix_kwh_moyen_high = (
-    df_filtered.groupby("LIEUX")["Prix_du_kWh"]
+    df_filtered.groupby("LIEUX")["Prix du KwH"]
     .mean()
     .sort_values(ascending=False)
     .head(10)
@@ -153,11 +150,11 @@ prix_kwh_moyen_high = (
 
 fig_high = px.bar(
     prix_kwh_moyen_high,
-    x="Prix_du_kWh",
+    x="Prix du KwH",
     y="LIEUX",
     orientation="h",
     title="Top 10 des stations les plus chères (€/kWh)",
-    labels={"Prix_du_kWh": "Prix moyen du kWh (€)", "LIEUX": "Station"}
+    labels={"Prix du KwH": "Prix moyen du kWh (€)", "LIEUX": "Station"}
 )
 
 st.plotly_chart(fig_high, use_container_width=True)
@@ -235,7 +232,7 @@ station_B = colB.selectbox("Station B", stations)
 def stats_station(df, station):
     subset = df[df["LIEUX"] == station]
     return {
-        "Prix moyen du kWh": subset["Prix_du_kWh"].mean(),
+        "Prix moyen du kWh": subset["Prix du KwH"].mean(),
         "Vitesse moyenne (kw/min)": subset["Vitesse kw/min"].mean() if "Vitesse kw/min" in df.columns else 0,
         "Sessions": len(subset),
         "Temps moyen (min)": subset["TEMPS en min"].mean() if "TEMPS en min" in df.columns else 0

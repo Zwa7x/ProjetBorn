@@ -39,6 +39,9 @@ if lieu_filter != "Tous":
     df_filtered = df_filtered[df_filtered["LIEUX"] == lieu_filter]
 
 st.divider()
+st.write(df_filtered.columns.tolist())
+
+st.divider()
 
 # --- RÉSUMÉ GLOBAL ---
 st.subheader("📌 Résumé global")

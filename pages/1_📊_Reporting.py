@@ -13,11 +13,11 @@ if len(df) == 0:
 df["€/kWh"] = df["Cout"] / df["kWh"]
 
 st.subheader("📈 Évolution des kWh chargés")
-fig = px.line(df, x="Date", y="kWh")
+fig1 = px.line(df, x="Date", y="Puissance", title="Évolution de la puissance délivrée (kW)")
 st.plotly_chart(fig, use_container_width=True)
 
 st.subheader("💰 Coût par station")
-fig2 = px.bar(df, x="Station", y="Cout")
+fig2 = px.bar(df, x="Station", y="Cout", title="Coût total par station (€)")
 st.plotly_chart(fig2, use_container_width=True)
 
 st.subheader("🏆 Stations les plus économiques (€/kWh)")

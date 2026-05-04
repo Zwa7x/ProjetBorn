@@ -194,7 +194,7 @@ if len(sessions) > 0:
         hole=0.5,
         title="Répartition des sessions par station"
     )
-    fig_sessions.update_traces(textinfo='label+value')
+    fig_sessions.update_traces(textinfo='value')
     st.plotly_chart(fig_sessions, use_container_width=True)
 
 # --- DONUT : COÛT PAR RÉGION ---

@@ -72,41 +72,67 @@ st.divider()
 # --- INDICATEURS CLÉS ---
 st.subheader("📈 Indicateurs clés")
 
-col1, col2, col3 = st.columns(3)
-
+# 1) Calcul des valeurs AVANT l'affichage
 prix_kwh_moyen_all = (
     df_filtered.groupby("LIEUX")["Prix du KwH"]
     .mean()
     .sort_values()
 )
 
-if len(prix_kwh_moyen_all) > 0:
-    col1.metric(
-        "Station la moins chère",
-        prix_kwh_moyen_all.index[0],
-        help=f"Prix moyen : {prix_kwh_moyen_all.iloc[0]:.3f} €/kWh"
-    )
-else:
-    col1.metric("Station la moins chère", "N/A")
-
 if "Vitesse kw/min" in df_filtered.columns:
-    vitesse_moyenne = (
+    vitesse_moyenne_all = (
         df_filtered.groupby("LIEUX")["Vitesse kw/min"]
         .mean()
         .sort_values(ascending=False)
     )
-    if len(vitesse_moyenne) > 0:
-        col2.metric(
-            "Station la plus rapide",
-            vitesse_moyenne.index[0],
-            help=f"Vitesse moyenne : {vitesse_moyenne.iloc[0]:.2f} kw/min"
-        )
 else:
-    col2.metric("Station la plus rapide", "N/A")
+    vitesse_moyenne_all = None
 
-col3.metric("Nombre de sessions", len(df_filtered))
+nb_sessions = len(df_filtered)
+
+# 2) Fonction carte HTML CUPRA
+def card(label, value, accent=None):
+    return f"""
+    <div style='padding:14px; border-radius:10px; background-color:#1a1a1a; color:#e6e6e6;'>
+        <div style='font-size:14px; opacity:0.8;'>{label}</div>
+        <div style='font-size:20px; font-weight:600;'>{value}</div>
+        {f"<div style='font-size:14px; color:#d47f2a;'>{accent}</div>" if accent else ""}
+    </div>
+    """
+
+# 3) Affichage des cartes
+col1, col2, col3 = st.columns(3)
+
+# Station la moins chère
+if len(prix_kwh_moyen_all) > 0:
+    station_cheap = prix_kwh_moyen_all.index[0]
+    prix_cheap = prix_kwh_moyen_all.iloc[0]
+    col1.markdown(
+        card("Station la moins chère", station_cheap, f"{prix_cheap:.3f} €/kWh"),
+        unsafe_allow_html=True
+    )
+else:
+    col1.markdown(card("Station la moins chère", "N/A"), unsafe_allow_html=True)
+
+# Station la plus rapide
+if vitesse_moyenne_all is not None and len(vitesse_moyenne_all) > 0:
+    station_fast = vitesse_moyenne_all.index[0]
+    vitesse_fast = vitesse_moyenne_all.iloc[0]
+    col2.markdown(
+        card("Station la plus rapide", station_fast, f"{vitesse_fast:.2f} kw/min"),
+        unsafe_allow_html=True
+    )
+else:
+    col2.markdown(card("Station la plus rapide", "N/A"), unsafe_allow_html=True)
+
+# Nombre de sessions
+col3.markdown(
+    card("Nombre de sessions", f"{nb_sessions}"),
+    unsafe_allow_html=True
+)
 
 st.divider()
+
 
 # --- TOP 10 MOINS CHÈRES ---
 st.subheader("💚 Top 10 des stations les moins chères (€/kWh)")

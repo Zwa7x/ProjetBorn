@@ -20,3 +20,6 @@ st.sidebar.subheader("🎨 Thème")
 theme_choice = st.sidebar.radio("Choisir un thème :", ["Standard", "CUPRA"])
 
 st.session_state.theme_cupra = (theme_choice == "CUPRA")
+
+if st.sidebar.button("📄 Exporter le reporting en PDF"):
+    st.session_state.export_pdf = True

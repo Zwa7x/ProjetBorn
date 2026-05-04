@@ -5,10 +5,7 @@ import pandas as pd
 from utils import load_data
 
 # --- MODE SOMBRE CUPRA ---
-if "theme_cupra" not in st.session_state:
-    st.session_state.theme_cupra = False
-
-if st.session_state.theme_cupra:
+if "theme_cupra" in st.session_state and st.session_state.theme_cupra:
     st.markdown("""
     <style>
     body, .stApp { background-color: #0d0d0d; color: #e6e6e6; }
@@ -46,32 +43,26 @@ st.divider()
 # --- RÉSUMÉ GLOBAL ---
 st.subheader("📌 Résumé global")
 
-# Coût total
 cout_total = df_filtered["Cout"].sum()
-
-# Coût moyen global
 cout_moyen_global = df_filtered["Cout"].mean()
+prix_kwh_global = df_filtered["Prix_du_kWh"].mean()
 
-# Vitesse moyenne globale
 if "Vitesse kw/min" in df_filtered.columns:
     vitesse_moyenne_global = df_filtered["Vitesse kw/min"].mean()
 else:
     vitesse_moyenne_global = None
 
-# Nombre total de sessions
 sessions_total = len(df_filtered)
 
-# Temps total passé (si présent)
-if "TEMPS" in df_filtered.columns:
-    temps_total = df_filtered["TEMPS"].sum()
+if "TEMPS en min" in df_filtered.columns:
+    temps_total = df_filtered["TEMPS en min"].sum()
 else:
     temps_total = None
 
-# Affichage en colonnes
 colA, colB, colC, colD = st.columns(4)
 
 colA.metric("Coût total", f"{cout_total:.2f} €")
-colB.metric("Coût moyen", f"{cout_moyen_global:.2f} €")
+colB.metric("Prix moyen du kWh", f"{prix_kwh_global:.3f} €/kWh")
 
 if vitesse_moyenne_global is not None:
     colC.metric("Vitesse moyenne", f"{vitesse_moyenne_global:.2f} kw/min")
@@ -85,43 +76,50 @@ else:
 
 st.divider()
 
-
-st.write(df_filtered.columns.tolist())
-st.divider()
-
 # --- INDICATEURS CLÉS ---
 st.subheader("📈 Indicateurs clés")
 
 col1, col2, col3 = st.columns(3)
 
-# Coût moyen le plus bas
-prix_kwh_moyen_all = df_filtered.groupby("LIEUX")["Prix du kWh"].mean().sort_values()
-if len(cout_moyen) > 0:
-    col1.metric(
-    "Station la moins chère (€/kWh)",
-    prix_kwh_moyen_all.index[0],
-    f"{prix_kwh_moyen_all.iloc[0]:.3f} €/kWh"
+prix_kwh_moyen_all = (
+    df_filtered.groupby("LIEUX")["Prix_du_kWh"]
+    .mean()
+    .sort_values()
 )
 
-
-# Vitesse moyenne la plus élevée
-if "Vitesse kw/min" in df_filtered.columns:
-    vitesse_moyenne = df_filtered.groupby("LIEUX")["Vitesse kw/min"].mean().sort_values(ascending=False)
-    if len(vitesse_moyenne) > 0:
-        col2.metric("Lieu le plus rapide", vitesse_moyenne.index[0], f"{vitesse_moyenne.iloc[0]:.2f} kw/min")
+if len(prix_kwh_moyen_all) > 0:
+    col1.metric(
+        "Station la moins chère (€/kWh)",
+        prix_kwh_moyen_all.index[0],
+        f"{prix_kwh_moyen_all.iloc[0]:.3f} €/kWh"
+    )
 else:
-    col2.info("Colonne 'Vitesse kw/min' absente.")
+    col1.metric("Station la moins chère", "N/A")
 
-# Nombre de sessions
+if "Vitesse kw/min" in df_filtered.columns:
+    vitesse_moyenne = (
+        df_filtered.groupby("LIEUX")["Vitesse kw/min"]
+        .mean()
+        .sort_values(ascending=False)
+    )
+    if len(vitesse_moyenne) > 0:
+        col2.metric(
+            "Station la plus rapide",
+            vitesse_moyenne.index[0],
+            f"{vitesse_moyenne.iloc[0]:.2f} kw/min"
+        )
+else:
+    col2.metric("Station la plus rapide", "N/A")
+
 col3.metric("Nombre de sessions", len(df_filtered))
 
 st.divider()
 
-# --- TOP 10 MOINS CHÈRES (PRIX MOYEN DU KWH) ---
+# --- TOP 10 MOINS CHÈRES ---
 st.subheader("💚 Top 10 des stations les moins chères (€/kWh)")
 
 prix_kwh_moyen = (
-    df_filtered.groupby("LIEUX")["Prix du kWh"]
+    df_filtered.groupby("LIEUX")["Prix_du_kWh"]
     .mean()
     .sort_values()
     .head(10)
@@ -130,20 +128,20 @@ prix_kwh_moyen = (
 
 fig_low = px.bar(
     prix_kwh_moyen,
-    x="Prix du kWh",
+    x="Prix_du_kWh",
     y="LIEUX",
     orientation="h",
-    title="Top 10 des stations les moins chères (prix moyen du kWh)",
-    labels={"Prix du kWh": "Prix moyen du kWh (€)", "LIEUX": "Station"}
+    title="Top 10 des stations les moins chères (€/kWh)",
+    labels={"Prix_du_kWh": "Prix moyen du kWh (€)", "LIEUX": "Station"}
 )
 
 st.plotly_chart(fig_low, use_container_width=True)
 
-# --- TOP 10 PLUS CHÈRES (PRIX MOYEN DU KWH) ---
+# --- TOP 10 PLUS CHÈRES ---
 st.subheader("❤️ Top 10 des stations les plus chères (€/kWh)")
 
 prix_kwh_moyen_high = (
-    df_filtered.groupby("LIEUX")["Prix du kWh"]
+    df_filtered.groupby("LIEUX")["Prix_du_kWh"]
     .mean()
     .sort_values(ascending=False)
     .head(10)
@@ -152,29 +150,39 @@ prix_kwh_moyen_high = (
 
 fig_high = px.bar(
     prix_kwh_moyen_high,
-    x="Prix du kWh",
+    x="Prix_du_kWh",
     y="LIEUX",
     orientation="h",
-    title="Top 10 des stations les plus chères (prix moyen du kWh)",
-    labels={"Prix du kWh": "Prix moyen du kWh (€)", "LIEUX": "Station"}
+    title="Top 10 des stations les plus chères (€/kWh)",
+    labels={"Prix_du_kWh": "Prix moyen du kWh (€)", "LIEUX": "Station"}
 )
 
 st.plotly_chart(fig_high, use_container_width=True)
 
+st.divider()
 
 # --- TOP 10 PLUS RAPIDES ---
-st.subheader("⚡ Top 10 des stations les plus rapides (vitesse moyenne)")
+st.subheader("⚡ Top 10 des stations les plus rapides (kw/min)")
 
 if "Vitesse kw/min" in df_filtered.columns:
-    vitesse_moyenne_full = df_filtered.groupby("LIEUX")["Vitesse kw/min"].mean().sort_values(ascending=False)
-    if len(vitesse_moyenne_full) > 0:
-        top10_fast = vitesse_moyenne_full.head(10).reset_index()
-        fig_fast = px.bar(
-            top10_fast, x="Vitesse kw/min", y="LIEUX", orientation="h",
-            title="Top 10 des stations les plus rapides (kw/min)",
-            labels={"Vitesse kw/min": "Vitesse moyenne (kw/min)", "LIEUX": "Station"}
-        )
-        st.plotly_chart(fig_fast, use_container_width=True)
+    vitesse_moyenne_full = (
+        df_filtered.groupby("LIEUX")["Vitesse kw/min"]
+        .mean()
+        .sort_values(ascending=False)
+        .head(10)
+        .reset_index()
+    )
+
+    fig_fast = px.bar(
+        vitesse_moyenne_full,
+        x="Vitesse kw/min",
+        y="LIEUX",
+        orientation="h",
+        title="Top 10 des stations les plus rapides (kw/min)",
+        labels={"Vitesse kw/min": "Vitesse moyenne (kw/min)", "LIEUX": "Station"}
+    )
+
+    st.plotly_chart(fig_fast, use_container_width=True)
 
 st.divider()
 
@@ -203,8 +211,8 @@ if len(cout_region) > 0:
 # --- DONUT : TEMPS PAR TYPE DE BORNE ---
 st.subheader("🧁 Répartition du temps passé par type de borne")
 
-if "TYPE_BORNE" in df_filtered.columns and "TEMPS" in df_filtered.columns:
-    temps_borne = df_filtered.groupby("TYPE_BORNE")["TEMPS"].sum()
+if "TYPE_BORNE" in df_filtered.columns and "TEMPS en min" in df_filtered.columns:
+    temps_borne = df_filtered.groupby("TYPE_BORNE")["TEMPS en min"].sum()
     fig_temps = px.pie(
         names=temps_borne.index, values=temps_borne.values, hole=0.5,
         title="Répartition du temps passé par type de borne"
@@ -213,7 +221,7 @@ if "TYPE_BORNE" in df_filtered.columns and "TEMPS" in df_filtered.columns:
 
 st.divider()
 
-# --- RADAR CHART COMPARATIF ---
+# --- RADAR CHART ---
 st.subheader("🛡️ Comparatif entre deux stations")
 
 stations = df_filtered["LIEUX"].dropna().unique()
@@ -224,10 +232,10 @@ station_B = colB.selectbox("Station B", stations)
 def stats_station(df, station):
     subset = df[df["LIEUX"] == station]
     return {
-        "Coût moyen (€)": subset["Cout"].mean(),
+        "Prix moyen du kWh": subset["Prix_du_kWh"].mean(),
         "Vitesse moyenne (kw/min)": subset["Vitesse kw/min"].mean() if "Vitesse kw/min" in df.columns else 0,
         "Sessions": len(subset),
-        "Temps moyen (min)": subset["TEMPS"].mean() if "TEMPS" in df.columns else 0
+        "Temps moyen (min)": subset["TEMPS en min"].mean() if "TEMPS en min" in df.columns else 0
     }
 
 stats_A = stats_station(df_filtered, station_A)
@@ -268,4 +276,3 @@ if len(df_filtered) > 0:
         title="Coût total par mois (€)"
     )
     st.plotly_chart(fig4, use_container_width=True)
-

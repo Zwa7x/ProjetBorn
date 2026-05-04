@@ -14,7 +14,9 @@ def clean_columns(df):
         "Puissance": "Puissance",
         "€": "Cout",
         "COUT": "Cout",
-        "cout": "Cout"
+        "cout": "Cout",
+        "Prix du KwH": "Prix du KWh",
+        "Prix du KwH": "Prix du KWh"
     })
 
     if "Date" in df.columns:

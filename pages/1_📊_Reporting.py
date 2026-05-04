@@ -44,35 +44,17 @@ st.divider()
 st.subheader("📌 Résumé global")
 
 cout_total = df_filtered["Cout"].sum()
-cout_moyen_global = df_filtered["Cout"].mean()
 prix_kwh_global = df_filtered["Prix du KwH"].mean()
-
-if "Vitesse kw/min" in df_filtered.columns:
-    vitesse_moyenne_global = df_filtered["Vitesse kw/min"].mean()
-else:
-    vitesse_moyenne_global = None
-
+vitesse_moyenne_global = df_filtered["Vitesse kw/min"].mean() if "Vitesse kw/min" in df_filtered.columns else None
 sessions_total = len(df_filtered)
-
-if "TEMPS en min" in df_filtered.columns:
-    temps_total = df_filtered["TEMPS en min"].sum()
-else:
-    temps_total = None
+temps_total = df_filtered["TEMPS en min"].sum() if "TEMPS en min" in df_filtered.columns else None
 
 colA, colB, colC, colD = st.columns(4)
 
-colA.metric("Coût total", f"{cout_total:.2f} €")
+colA.metric("Coût total (€)", f"{cout_total:.2f}")
 colB.metric("Prix moyen du kWh", f"{prix_kwh_global:.3f} €/kWh")
-
-if vitesse_moyenne_global is not None:
-    colC.metric("Vitesse moyenne", f"{vitesse_moyenne_global:.2f} kw/min")
-else:
-    colC.metric("Vitesse moyenne", "N/A")
-
-if temps_total is not None:
-    colD.metric("Temps total", f"{temps_total:.1f} min")
-else:
-    colD.metric("Temps total", "N/A")
+colC.metric("Vitesse moyenne", f"{vitesse_moyenne_global:.2f} kw/min" if vitesse_moyenne_global else "N/A")
+colD.metric("Temps total", f"{temps_total:.1f} min" if temps_total else "N/A")
 
 st.divider()
 
@@ -89,9 +71,9 @@ prix_kwh_moyen_all = (
 
 if len(prix_kwh_moyen_all) > 0:
     col1.metric(
-        "Station la moins chère (€/kWh)",
+        "Station la moins chère",
         prix_kwh_moyen_all.index[0],
-        f"{prix_kwh_moyen_all.iloc[0]:.3f} €/kWh"
+        help=f"Prix moyen : {prix_kwh_moyen_all.iloc[0]:.3f} €/kWh"
     )
 else:
     col1.metric("Station la moins chère", "N/A")
@@ -106,7 +88,7 @@ if "Vitesse kw/min" in df_filtered.columns:
         col2.metric(
             "Station la plus rapide",
             vitesse_moyenne.index[0],
-            f"{vitesse_moyenne.iloc[0]:.2f} kw/min"
+            help=f"Vitesse moyenne : {vitesse_moyenne.iloc[0]:.2f} kw/min"
         )
 else:
     col2.metric("Station la plus rapide", "N/A")
@@ -124,6 +106,7 @@ prix_kwh_moyen = (
     .sort_values()
     .head(10)
     .reset_index()
+    .iloc[::-1]  # inversion pour afficher la moins chère en haut
 )
 
 fig_low = px.bar(
@@ -132,7 +115,11 @@ fig_low = px.bar(
     y="LIEUX",
     orientation="h",
     title="Top 10 des stations les moins chères (€/kWh)",
-    labels={"Prix du KwH": "Prix moyen du kWh (€)", "LIEUX": "Station"}
+)
+
+fig_low.update_traces(
+    texttemplate='%{x:.3f}',
+    textposition='outside'
 )
 
 st.plotly_chart(fig_low, use_container_width=True)
@@ -146,6 +133,7 @@ prix_kwh_moyen_high = (
     .sort_values(ascending=False)
     .head(10)
     .reset_index()
+    .iloc[::-1]
 )
 
 fig_high = px.bar(
@@ -154,7 +142,11 @@ fig_high = px.bar(
     y="LIEUX",
     orientation="h",
     title="Top 10 des stations les plus chères (€/kWh)",
-    labels={"Prix du KwH": "Prix moyen du kWh (€)", "LIEUX": "Station"}
+)
+
+fig_high.update_traces(
+    texttemplate='%{x:.3f}',
+    textposition='outside'
 )
 
 st.plotly_chart(fig_high, use_container_width=True)
@@ -171,6 +163,7 @@ if "Vitesse kw/min" in df_filtered.columns:
         .sort_values(ascending=False)
         .head(10)
         .reset_index()
+        .iloc[::-1]
     )
 
     fig_fast = px.bar(
@@ -179,7 +172,11 @@ if "Vitesse kw/min" in df_filtered.columns:
         y="LIEUX",
         orientation="h",
         title="Top 10 des stations les plus rapides (kw/min)",
-        labels={"Vitesse kw/min": "Vitesse moyenne (kw/min)", "LIEUX": "Station"}
+    )
+
+    fig_fast.update_traces(
+        texttemplate='%{x:.2f}',
+        textposition='outside'
     )
 
     st.plotly_chart(fig_fast, use_container_width=True)
@@ -192,9 +189,12 @@ st.subheader("🧁 Répartition du nombre de sessions par station")
 sessions = df_filtered["LIEUX"].value_counts()
 if len(sessions) > 0:
     fig_sessions = px.pie(
-        names=sessions.index, values=sessions.values, hole=0.5,
+        names=sessions.index,
+        values=sessions.values,
+        hole=0.5,
         title="Répartition des sessions par station"
     )
+    fig_sessions.update_traces(textinfo='label+value')
     st.plotly_chart(fig_sessions, use_container_width=True)
 
 # --- DONUT : COÛT PAR RÉGION ---
@@ -203,9 +203,12 @@ st.subheader("🧁 Répartition du coût total par région")
 cout_region = df_filtered.groupby("REGION")["Cout"].sum()
 if len(cout_region) > 0:
     fig_region = px.pie(
-        names=cout_region.index, values=cout_region.values, hole=0.5,
+        names=cout_region.index,
+        values=cout_region.values,
+        hole=0.5,
         title="Répartition du coût total par région"
     )
+    fig_region.update_traces(textinfo='label+value')
     st.plotly_chart(fig_region, use_container_width=True)
 
 # --- DONUT : TEMPS PAR TYPE DE BORNE ---
@@ -214,9 +217,12 @@ st.subheader("🧁 Répartition du temps passé par type de borne")
 if "TYPE_BORNE" in df_filtered.columns and "TEMPS en min" in df_filtered.columns:
     temps_borne = df_filtered.groupby("TYPE_BORNE")["TEMPS en min"].sum()
     fig_temps = px.pie(
-        names=temps_borne.index, values=temps_borne.values, hole=0.5,
+        names=temps_borne.index,
+        values=temps_borne.values,
+        hole=0.5,
         title="Répartition du temps passé par type de borne"
     )
+    fig_temps.update_traces(textinfo='label+value')
     st.plotly_chart(fig_temps, use_container_width=True)
 
 st.divider()

@@ -32,17 +32,23 @@ st.divider()
 # --- MENU D'ACTIONS AVANCÉES ---
 st.subheader("⚙️ Actions avancées")
 
+descriptions = {
+    "Télécharger le CSV": "Télécharge le fichier CSV actuellement utilisé par l'application.",
+    "Télécharger l'Excel": "Télécharge le fichier Excel d'origine (CONSO_CUPRA.xlsx).",
+    "Importer un nouveau fichier Excel": "Importe un nouveau fichier Excel et régénère le CSV.",
+    "Sauvegarder une copie du CSV": "Télécharge une copie du CSV comme sauvegarde.",
+    "Supprimer le fichier CSV (forcer régénération)": "Supprime le CSV pour le recréer à partir de l'Excel."
+}
+
+actions = ["Aucune"] + list(descriptions.keys())
+
 action = st.selectbox(
     "Choisir une action",
-    [
-        "Aucune",
-        "Télécharger le CSV",
-        "Télécharger l'Excel",
-        "Importer un nouveau fichier Excel",
-        "Sauvegarder une copie du CSV",
-        "Supprimer le fichier CSV (forcer régénération)"
-    ]
+    actions
 )
+
+if action != "Aucune":
+    st.caption(descriptions[action])
 
 # --- ACTIONS ---
 if action == "Télécharger le CSV":
@@ -72,7 +78,7 @@ elif action == "Importer un nouveau fichier Excel":
         st.success("Nouveau fichier Excel importé !")
         if os.path.exists("data/conso.csv"):
             os.remove("data/conso.csv")
-        st.info("Le CSV sera régénéré automatiquement.")
+        st.info("Le CSV sera régénéré automatiquement au prochain chargement.")
         st.rerun()
 
 elif action == "Sauvegarder une copie du CSV":
@@ -89,7 +95,7 @@ elif action == "Sauvegarder une copie du CSV":
 elif action == "Supprimer le fichier CSV (forcer régénération)":
     if os.path.exists("data/conso.csv"):
         os.remove("data/conso.csv")
-        st.success("CSV supprimé. Il sera recréé automatiquement.")
+        st.success("CSV supprimé. Il sera recréé automatiquement à partir de l'Excel.")
         st.rerun()
     else:
         st.info("Aucun fichier CSV à supprimer.")

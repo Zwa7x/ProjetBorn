@@ -2,7 +2,7 @@ import pandas as pd
 import os
 
 DATA_PATH = "data/conso.csv"
-EXCEL_PATH = "CONSO_CUPRA.xlsx"
+EXCEL_PATH = "data/CONSO_CUPRA.xlsx"
 
 def clean_columns(df):
     df = df.rename(columns={

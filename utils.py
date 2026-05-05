@@ -48,3 +48,7 @@ def load_data():
 def save_data(df):
     os.makedirs("data", exist_ok=True)
     df.to_csv(DATA_PATH, index=False)
+
+print("EXCEL_PATH =", EXCEL_PATH)
+print("Working directory =", os.getcwd())
+print("Files in data =", os.listdir("data"))

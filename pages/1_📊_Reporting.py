@@ -45,7 +45,7 @@ st.subheader("📌 Résumé global")
 
 # 1) On calcule les valeurs AVANT d'appeler card()
 cout_total = df_filtered["Cout"].sum()
-prix_kwh_global = df_filtered["Prix du KwH"].astype(float).mean()
+prix_kwh_global = df_filtered["Prix du KwH"].mean()
 vitesse_moyenne_global = df_filtered["Vitesse kw/min"].mean() if "Vitesse kw/min" in df_filtered.columns else None
 temps_total = df_filtered["TEMPS en min"].sum() if "TEMPS en min" in df_filtered.columns else None
 

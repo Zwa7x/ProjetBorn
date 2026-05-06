@@ -166,33 +166,61 @@ def _merge_region_into_settings(settings_obj, region_name, acronyme, lieux_list)
         regs[region_name] = {"acronyme": acronyme or "", "lieux": list(dict.fromkeys(lieux_list))}
 
 
+def _find_sheet_with_column(xls_dict, candidate_column_names):
+    """
+    xls_dict : dict of DataFrames (sheet_name -> df)
+    candidate_column_names : iterable of candidate column names (lowercase)
+    Returns: (sheet_name, df) or (None, None)
+    """
+    # priority: exact sheet names 'Regions' or 'Types'
+    for target in ("regions", "types"):
+        for n in xls_dict.keys():
+            if n.lower().strip() == target:
+                return n, xls_dict[n].fillna("")
+
+    # otherwise scan sheets for a matching column
+    for name, df in xls_dict.items():
+        cols = [str(c).strip().lower() for c in df.columns]
+        if any(cand in cols for cand in candidate_column_names):
+            return name, df.fillna("")
+    return None, None
+
+
 def import_preview_from_excel(uploaded_file):
     """
-    Lit l'Excel uploadé et renvoie un aperçu minimal :
-    - feuilles disponibles
-    - DataFrame preview pour 'Regions' et 'Types' si trouvées
+    Read uploaded Excel and return a minimal preview:
+    - sheets list
+    - preview DataFrame for detected Regions sheet (or None)
+    - preview DataFrame for detected Types sheet (or None)
     """
     try:
         xls = pd.read_excel(uploaded_file, sheet_name=None, engine="openpyxl")
     except Exception as e:
         raise ValueError(f"Impossible de lire le fichier Excel : {e}")
 
-    preview = {"sheets": list(xls.keys()), "regions_df": None, "types_df": None}
-    # Regions
-    sheet_regions = next((n for n in xls.keys() if n.lower().strip() == "regions"), None)
-    if sheet_regions:
-        preview["regions_df"] = xls[sheet_regions].fillna("").head(10)
-    # Types
-    sheet_types = next((n for n in xls.keys() if n.lower().strip() == "types"), None)
-    if sheet_types:
-        preview["types_df"] = xls[sheet_types].fillna("").head(10)
+    preview = {"sheets": list(xls.keys()), "regions_df": None, "types_df": None, "regions_sheet": None, "types_sheet": None}
+
+    # detect Regions sheet (by name or by column)
+    region_candidates = ("region", "région", "region_name", "regionname", "region(s)")
+    sheet_r, df_r = _find_sheet_with_column(xls, region_candidates)
+    if sheet_r:
+        preview["regions_sheet"] = sheet_r
+        preview["regions_df"] = df_r.head(10)
+
+    # detect Types sheet
+    type_candidates = ("type", "type_borne", "type_bornes", "type_de_borne", "type(s)")
+    sheet_t, df_t = _find_sheet_with_column(xls, type_candidates)
+    if sheet_t:
+        preview["types_sheet"] = sheet_t
+        preview["types_df"] = df_t.head(10)
+
     return preview
 
 
 def apply_import_from_excel(uploaded_file, settings_obj):
     """
-    Lit l'Excel uploadé et fusionne régions/lieux/types dans settings_obj.
-    Retourne un résumé des ajouts.
+    Read uploaded Excel and merge regions/lieux/types into settings_obj.
+    Returns a summary dict with counts of additions.
     """
     try:
         xls = pd.read_excel(uploaded_file, sheet_name=None, engine="openpyxl")
@@ -204,13 +232,14 @@ def apply_import_from_excel(uploaded_file, settings_obj):
     added_types = 0
 
     # Regions
-    sheet_regions = next((n for n in xls.keys() if n.lower().strip() == "regions"), None)
-    if sheet_regions:
-        df_r = xls[sheet_regions].fillna("")
-        cols = [c.strip() for c in df_r.columns]
-        region_col = next((c for c in cols if c.lower() in ("region", "région", "region_name", "regionname")), None)
-        acr_col = next((c for c in cols if c.lower() in ("acronyme", "acronym", "acro")), None)
-        lieux_col = next((c for c in cols if c.lower() in ("lieux", "lieu", "places", "locations")), None)
+    region_candidates = ("region", "région", "region_name", "regionname", "region(s)")
+    sheet_r, df_r = _find_sheet_with_column(xls, region_candidates)
+    if sheet_r and df_r is not None:
+        cols = [str(c).strip() for c in df_r.columns]
+        region_col = next((c for c in cols if c.strip().lower() in region_candidates), None)
+        acr_col = next((c for c in cols if c.strip().lower() in ("acronyme", "acronym", "acro")), None)
+        lieux_col = next((c for c in cols if c.strip().lower() in ("lieux", "lieu", "places", "locations")), None)
+
         if region_col:
             for _, row in df_r.iterrows():
                 region_name = str(row.get(region_col, "")).strip()
@@ -222,7 +251,6 @@ def apply_import_from_excel(uploaded_file, settings_obj):
                     lieux = [l.strip() for l in re.split(r"[;,]", lieux_raw) if l.strip()]
                 else:
                     lieux = []
-                # compter ajouts
                 regs = settings_obj.setdefault("regions", {})
                 if region_name not in regs:
                     added_regions += 1
@@ -233,11 +261,11 @@ def apply_import_from_excel(uploaded_file, settings_obj):
                 added_lieux += max(0, after_count - before_count)
 
     # Types
-    sheet_types = next((n for n in xls.keys() if n.lower().strip() == "types"), None)
-    if sheet_types:
-        df_t = xls[sheet_types].fillna("")
-        cols = [c.strip() for c in df_t.columns]
-        type_col = next((c for c in cols if c.lower() in ("type", "type_borne", "type_bornes", "type_de_borne")), None)
+    type_candidates = ("type", "type_borne", "type_bornes", "type_de_borne", "type(s)")
+    sheet_t, df_t = _find_sheet_with_column(xls, type_candidates)
+    if sheet_t and df_t is not None:
+        cols = [str(c).strip() for c in df_t.columns]
+        type_col = next((c for c in cols if c.strip().lower() in type_candidates), None)
         if not type_col and cols:
             type_col = cols[0]
         if type_col:
@@ -248,7 +276,6 @@ def apply_import_from_excel(uploaded_file, settings_obj):
                     existing_types.append(t)
                     added_types += 1
 
-    # normaliser et retourner résumé
     _normalize_settings(settings_obj)
     return {"added_regions": added_regions, "added_lieux": added_lieux, "added_types": added_types}
 
@@ -257,28 +284,26 @@ def apply_import_from_excel(uploaded_file, settings_obj):
 # Navigation (sous-menu simple) + uploader discret pour préremplir
 # -----------------------
 st.sidebar.title("Paramètres")
-# uploader discret pour préremplir (lecture unique)
 st.sidebar.markdown("### Préremplir depuis Excel (optionnel)")
-uploaded_init_xlsx = st.sidebar.file_uploader("Charger CONSO_CUPRA.xlsx", type=["xlsx", "xls"], key="uploader_init", help="Fichier Excel contenant onglets 'Regions' et/ou 'Types'")
+uploaded_init_xlsx = st.sidebar.file_uploader("Charger CONSO_CUPRA.xlsx", type=["xlsx", "xls"], key="uploader_init", help="Fichier Excel contenant colonnes 'Region' et/ou 'Type'")
 if uploaded_init_xlsx is not None:
     try:
         preview = import_preview_from_excel(uploaded_init_xlsx)
         st.sidebar.write("Feuilles détectées :", preview["sheets"])
         if preview["regions_df"] is not None:
-            st.sidebar.markdown("**Aperçu Regions (10 premières lignes)**")
+            st.sidebar.markdown(f"**Aperçu Regions (onglet détecté: {preview['regions_sheet']})**")
             st.sidebar.dataframe(preview["regions_df"])
         else:
-            st.sidebar.info("Feuille 'Regions' non trouvée (attendue).")
+            st.sidebar.info("Aucune feuille contenant une colonne 'Region' détectée.")
         if preview["types_df"] is not None:
-            st.sidebar.markdown("**Aperçu Types (10 premières lignes)**")
+            st.sidebar.markdown(f"**Aperçu Types (onglet détecté: {preview['types_sheet']})**")
             st.sidebar.dataframe(preview["types_df"])
-        # bouton d'application simple
+        else:
+            st.sidebar.info("Aucune feuille contenant une colonne 'Type' détectée.")
         if st.sidebar.button("Préremplir les listes depuis ce fichier"):
-            # repositionner le buffer pour relecture
             uploaded_init_xlsx.seek(0)
             summary = apply_import_from_excel(uploaded_init_xlsx, settings)
             persist_and_notify(settings, f"Préremplissage appliqué : +{summary['added_regions']} régions, +{summary['added_lieux']} lieux, +{summary['added_types']} types.")
-            # mettre à jour affichages
             render_regions_table()
             render_types_list()
             _lieux_list_container.empty()

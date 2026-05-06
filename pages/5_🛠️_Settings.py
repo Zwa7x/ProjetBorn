@@ -149,7 +149,7 @@ def render_lieux_list(sel_region):
 
 
 # -----------------------
-# Import Excel simple (lecture unique pour préremplir)
+# Import Excel helpers (flexible detection)
 # -----------------------
 def _merge_region_into_settings(settings_obj, region_name, acronyme, lieux_list):
     regs = settings_obj.setdefault("regions", {})
@@ -192,20 +192,56 @@ def import_preview_from_excel(uploaded_file):
     - sheets list
     - preview DataFrame for detected Regions sheet (or None)
     - preview DataFrame for detected Types sheet (or None)
+    - indication if the Region column is treated as acronym (threshold 80%)
     """
     try:
         xls = pd.read_excel(uploaded_file, sheet_name=None, engine="openpyxl")
     except Exception as e:
         raise ValueError(f"Impossible de lire le fichier Excel : {e}")
 
-    preview = {"sheets": list(xls.keys()), "regions_df": None, "types_df": None, "regions_sheet": None, "types_sheet": None}
+    preview = {
+        "sheets": list(xls.keys()),
+        "regions_df": None,
+        "types_df": None,
+        "regions_sheet": None,
+        "types_sheet": None,
+        "regions_are_acro": False,
+        "detected_region_col": None,
+        "detected_fullname_col": None
+    }
 
     # detect Regions sheet (by name or by column)
-    region_candidates = ("region", "région", "region_name", "regionname", "region(s)")
+    region_candidates = ("region", "région", "region_name", "regionname", "nom_region", "libelle", "region_full")
     sheet_r, df_r = _find_sheet_with_column(xls, region_candidates)
     if sheet_r:
+        df_r = df_r.fillna("")
         preview["regions_sheet"] = sheet_r
         preview["regions_df"] = df_r.head(10)
+        cols = [str(c).strip() for c in df_r.columns]
+
+        # detect explicit short column (acronyme) or region column
+        short_col_candidates = ("acronyme", "acro", "acronym", "code_region", "region_code")
+        short_col = next((c for c in cols if c.strip().lower() in short_col_candidates), None)
+        region_col = next((c for c in cols if c.strip().lower() in region_candidates), None)
+        fullname_candidates = ("region_name", "nom_region", "libelle", "region_full", "region_long")
+        fullname_col = next((c for c in cols if c.strip().lower() in fullname_candidates and c != region_col), None)
+
+        # heuristic threshold now 80%
+        threshold = 0.8
+
+        if short_col:
+            preview["regions_are_acro"] = True
+            preview["detected_region_col"] = short_col
+            preview["detected_fullname_col"] = fullname_col or region_col
+        elif region_col:
+            vals = [str(v).strip() for v in df_r[region_col].tolist() if str(v).strip()]
+            if vals:
+                short_ratio = sum(1 for v in vals if len(v) <= 5) / len(vals)
+                preview["regions_are_acro"] = (short_ratio >= threshold)
+            else:
+                preview["regions_are_acro"] = False
+            preview["detected_region_col"] = region_col
+            preview["detected_fullname_col"] = fullname_col
 
     # detect Types sheet
     type_candidates = ("type", "type_borne", "type_bornes", "type_de_borne", "type(s)")
@@ -217,10 +253,52 @@ def import_preview_from_excel(uploaded_file):
     return preview
 
 
-def apply_import_from_excel(uploaded_file, settings_obj):
+# -----------------------
+# Upsert helpers and import with upsert behavior
+# -----------------------
+def _upsert_region(settings_obj, region_key, acronyme, lieux_list):
     """
-    Read uploaded Excel and merge regions/lieux/types into settings_obj.
-    Returns a summary dict with counts of additions.
+    Upsert helper:
+    - region_key : clé utilisée dans settings (ici on can use acronyme as key if requested)
+    - acronyme : value to store in 'acronyme'
+    - lieux_list : list of lieux to merge
+    Returns: dict {created:bool, acr_updated:bool, new_lieux:int}
+    """
+    regs = settings_obj.setdefault("regions", {})
+    created = False
+    acr_updated = False
+    new_lieux_count = 0
+
+    if region_key in regs:
+        meta = regs[region_key] or {"acronyme": "", "lieux": []}
+        # update acronyme if provided and different
+        if acronyme and str(meta.get("acronyme", "")).strip() != acronyme:
+            meta["acronyme"] = acronyme
+            acr_updated = True
+        # merge lieux without duplicates
+        existing = meta.get("lieux", []) or []
+        for l in lieux_list:
+            if l and l not in existing:
+                existing.append(l)
+                new_lieux_count += 1
+        meta["lieux"] = existing
+        regs[region_key] = meta
+    else:
+        # create new region
+        regs[region_key] = {"acronyme": acronyme or "", "lieux": list(dict.fromkeys([l for l in lieux_list if l]))}
+        created = True
+        new_lieux_count = len(regs[region_key]["lieux"])
+
+    return {"created": created, "acr_updated": acr_updated, "new_lieux": new_lieux_count}
+
+
+def apply_import_from_excel_upsert(uploaded_file, settings_obj):
+    """
+    Lecture Excel + upsert intelligent :
+    - n'ajoute que les régions/types/lieux manquants
+    - met à jour l'acronyme si différent
+    - utilise le seuil 0.8 pour détecter colonne d'acronymes
+    Returns summary dict.
     """
     try:
         xls = pd.read_excel(uploaded_file, sheet_name=None, engine="openpyxl")
@@ -228,42 +306,90 @@ def apply_import_from_excel(uploaded_file, settings_obj):
         raise ValueError(f"Impossible de lire le fichier Excel : {e}")
 
     added_regions = 0
+    updated_regions = 0
     added_lieux = 0
+    updated_acronymes = 0
     added_types = 0
 
-    # Regions
-    region_candidates = ("region", "région", "region_name", "regionname", "region(s)")
+    # --- Regions (flexible detection) ---
+    region_candidates = ("region", "région", "region_name", "regionname", "nom_region", "libelle", "region_full")
     sheet_r, df_r = _find_sheet_with_column(xls, region_candidates)
     if sheet_r and df_r is not None:
+        df_r = df_r.fillna("")
         cols = [str(c).strip() for c in df_r.columns]
-        region_col = next((c for c in cols if c.strip().lower() in region_candidates), None)
-        acr_col = next((c for c in cols if c.strip().lower() in ("acronyme", "acronym", "acro")), None)
-        lieux_col = next((c for c in cols if c.strip().lower() in ("lieux", "lieu", "places", "locations")), None)
 
-        if region_col:
-            for _, row in df_r.iterrows():
-                region_name = str(row.get(region_col, "")).strip()
+        short_col_candidates = ("acronyme", "acro", "acronym", "code_region", "region_code")
+        fullname_candidates = ("region_name", "nom_region", "libelle", "region_full", "region_long")
+
+        short_col = next((c for c in cols if c.strip().lower() in short_col_candidates), None)
+        region_col = next((c for c in cols if c.strip().lower() in region_candidates), None)
+        fullname_col = next((c for c in cols if c.strip().lower() in fullname_candidates and c != region_col), None)
+
+        threshold = 0.8
+
+        # decide if short column is acronym
+        if short_col:
+            treat_region_as_acro = True
+            detected_short_col = short_col
+            detected_fullname_col = fullname_col or region_col
+        elif region_col:
+            vals = [str(v).strip() for v in df_r[region_col].tolist() if str(v).strip()]
+            if vals:
+                short_ratio = sum(1 for v in vals if len(v) <= 5) / len(vals)
+                treat_region_as_acro = (short_ratio >= threshold)
+            else:
+                treat_region_as_acro = False
+            detected_short_col = region_col
+            detected_fullname_col = fullname_col
+        else:
+            treat_region_as_acro = False
+            detected_short_col = None
+            detected_fullname_col = None
+
+        # iterate rows and upsert
+        for _, row in df_r.iterrows():
+            if treat_region_as_acro:
+                acr = str(row.get(detected_short_col, "")).strip() if detected_short_col else ""
+                fullname = str(row.get(detected_fullname_col, "")).strip() if detected_fullname_col else ""
+                # use acronym as key (requested)
+                region_key = acr or fullname or ""
+                region_acro = acr or ""
+                if not region_key:
+                    continue
+                lieux_col = next((c for c in cols if c.strip().lower() in ("lieux", "lieu", "places", "locations")), None)
+                lieux_raw = str(row.get(lieux_col, "")).strip() if lieux_col else ""
+                lieux = [l.strip() for l in re.split(r"[;,]", lieux_raw) if l.strip()] if lieux_raw else []
+                res = _upsert_region(settings_obj, region_key, region_acro, lieux)
+                if res["created"]:
+                    added_regions += 1
+                if res["acr_updated"]:
+                    updated_acronymes += 1
+                added_lieux += res["new_lieux"]
+                if res["created"] is False and (res["acr_updated"] or res["new_lieux"] > 0):
+                    updated_regions += 1
+            else:
+                # region_col contains full name
+                region_name = str(row.get(region_col, "")).strip() if region_col else ""
                 if not region_name:
                     continue
-                acr = str(row.get(acr_col, "")).strip() if acr_col else ""
+                acr = str(row.get(short_col, "")).strip() if short_col else ""
+                lieux_col = next((c for c in cols if c.strip().lower() in ("lieux", "lieu", "places", "locations")), None)
                 lieux_raw = str(row.get(lieux_col, "")).strip() if lieux_col else ""
-                if lieux_raw:
-                    lieux = [l.strip() for l in re.split(r"[;,]", lieux_raw) if l.strip()]
-                else:
-                    lieux = []
-                regs = settings_obj.setdefault("regions", {})
-                if region_name not in regs:
+                lieux = [l.strip() for l in re.split(r"[;,]", lieux_raw) if l.strip()] if lieux_raw else []
+                res = _upsert_region(settings_obj, region_name, acr, lieux)
+                if res["created"]:
                     added_regions += 1
-                existing_lieux = regs.get(region_name, {}).get("lieux", []) if region_name in regs else []
-                before_count = len(existing_lieux or [])
-                _merge_region_into_settings(settings_obj, region_name, acr, lieux)
-                after_count = len(settings_obj["regions"][region_name]["lieux"])
-                added_lieux += max(0, after_count - before_count)
+                if res["acr_updated"]:
+                    updated_acronymes += 1
+                added_lieux += res["new_lieux"]
+                if res["created"] is False and (res["acr_updated"] or res["new_lieux"] > 0):
+                    updated_regions += 1
 
-    # Types
+    # --- Types (upsert simple) ---
     type_candidates = ("type", "type_borne", "type_bornes", "type_de_borne", "type(s)")
     sheet_t, df_t = _find_sheet_with_column(xls, type_candidates)
     if sheet_t and df_t is not None:
+        df_t = df_t.fillna("")
         cols = [str(c).strip() for c in df_t.columns]
         type_col = next((c for c in cols if c.strip().lower() in type_candidates), None)
         if not type_col and cols:
@@ -277,11 +403,17 @@ def apply_import_from_excel(uploaded_file, settings_obj):
                     added_types += 1
 
     _normalize_settings(settings_obj)
-    return {"added_regions": added_regions, "added_lieux": added_lieux, "added_types": added_types}
+    return {
+        "added_regions": added_regions,
+        "updated_regions": updated_regions,
+        "added_lieux": added_lieux,
+        "updated_acronymes": updated_acronymes,
+        "added_types": added_types
+    }
 
 
 # -----------------------
-# Navigation (sous-menu simple) + uploader discret pour préremplir
+# Navigation (sous-menu simple) + uploader discret pour préremplir (upsert)
 # -----------------------
 st.sidebar.title("Paramètres")
 st.sidebar.markdown("### Préremplir depuis Excel (optionnel)")
@@ -293,6 +425,8 @@ if uploaded_init_xlsx is not None:
         if preview["regions_df"] is not None:
             st.sidebar.markdown(f"**Aperçu Regions (onglet détecté: {preview['regions_sheet']})**")
             st.sidebar.dataframe(preview["regions_df"])
+            if preview["regions_are_acro"]:
+                st.sidebar.info("La colonne détectée semble contenir des acronymes (seuil 80%). L'acronyme sera utilisé comme clé.")
         else:
             st.sidebar.info("Aucune feuille contenant une colonne 'Region' détectée.")
         if preview["types_df"] is not None:
@@ -302,8 +436,11 @@ if uploaded_init_xlsx is not None:
             st.sidebar.info("Aucune feuille contenant une colonne 'Type' détectée.")
         if st.sidebar.button("Préremplir les listes depuis ce fichier"):
             uploaded_init_xlsx.seek(0)
-            summary = apply_import_from_excel(uploaded_init_xlsx, settings)
-            persist_and_notify(settings, f"Préremplissage appliqué : +{summary['added_regions']} régions, +{summary['added_lieux']} lieux, +{summary['added_types']} types.")
+            summary = apply_import_from_excel_upsert(uploaded_init_xlsx, settings)
+            msg = (f"Préremplissage appliqué : +{summary['added_regions']} régions créées, "
+                   f"{summary['updated_regions']} régions mises à jour, +{summary['added_lieux']} lieux ajoutés, "
+                   f"{summary['updated_acronymes']} acronymes mis à jour, +{summary['added_types']} types ajoutés.")
+            persist_and_notify(settings, msg)
             render_regions_table()
             render_types_list()
             _lieux_list_container.empty()

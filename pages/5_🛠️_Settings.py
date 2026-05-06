@@ -148,10 +148,6 @@ def render_lieux_list(sel_region):
         _lieux_list_container.info("Aucun lieu pour cette région.")
 
 
-# Initial render
-render_regions_table()
-render_types_list()
-
 # -----------------------
 # Navigation (sous-menu)
 # -----------------------
@@ -163,9 +159,10 @@ section = st.sidebar.radio("Choisir la liste à modifier", ("Régions", "Lieux (
 # -----------------------
 def section_regions(settings):
     st.header("Régions")
-
-    # table already rendered in container; show a small note
-    st.markdown("Tableau des régions (mise à jour automatique)")
+    # afficher uniquement le tableau régions et vider les autres containers
+    render_regions_table()
+    _types_list_container.empty()
+    _lieux_list_container.empty()
 
     st.markdown("### Ajouter une nouvelle région")
     with st.form("form_add_region", clear_on_submit=True):
@@ -239,16 +236,25 @@ def section_lieux(settings):
     regions_list = list(settings.get("regions", {}).keys())
     if not regions_list:
         st.info("Aucune région définie. Créez d'abord une région.")
+        # vider les autres containers
+        _regions_table_container.empty()
+        _types_list_container.empty()
+        _lieux_list_container.empty()
         return
 
     sel_region = st.selectbox("Choisir une région", [""] + regions_list, key="select_lieux_region")
     if not sel_region:
         _lieux_list_container.empty()
+        # afficher uniquement le tableau régions pour contexte
+        _regions_table_container.empty()
+        _types_list_container.empty()
         return
 
     st.subheader(f"Lieux pour {sel_region}")
-    # affichage via container
+    # afficher uniquement la liste des lieux pour la région sélectionnée
     render_lieux_list(sel_region)
+    _regions_table_container.empty()
+    _types_list_container.empty()
 
     st.markdown("### Ajouter un lieu")
     with st.form(f"form_add_lieu_{sel_region}", clear_on_submit=True):
@@ -290,7 +296,10 @@ def section_lieux(settings):
 # -----------------------
 def section_types(settings):
     st.header("Types de borne")
+    # afficher uniquement les types et vider les autres containers
     render_types_list()
+    _regions_table_container.empty()
+    _lieux_list_container.empty()
 
     st.markdown("### Ajouter un type de borne")
     with st.form("form_add_type", clear_on_submit=True):
@@ -329,6 +338,11 @@ def section_types(settings):
 # -----------------------
 def section_import_export(settings):
     st.header("Import / Export rapide")
+    # vider les autres containers
+    _regions_table_container.empty()
+    _lieux_list_container.empty()
+    _types_list_container.empty()
+
     col_imp, col_exp = st.columns(2)
     with col_imp:
         st.subheader("Importer settings depuis JSON")

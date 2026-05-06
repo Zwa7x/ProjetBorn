@@ -3,6 +3,8 @@ import streamlit as st
 import pandas as pd
 import json
 import io
+import re
+from io import BytesIO
 from utils import load_settings, save_settings
 
 st.set_page_config(page_title="Settings", layout="wide")
@@ -149,6 +151,102 @@ def render_lieux_list(sel_region):
 
 
 # -----------------------
+# Fonctions d'import/export Excel (fusion intelligente)
+# -----------------------
+def _merge_region_into_settings(settings_obj, region_name, acronyme, lieux_list):
+    """Fusionne une région importée dans settings_obj en évitant doublons."""
+    regs = settings_obj.setdefault("regions", {})
+    if region_name in regs:
+        # mettre à jour acronyme si fourni et non vide
+        if acronyme:
+            regs[region_name]["acronyme"] = acronyme
+        # fusionner lieux en évitant doublons (conserver ordre existant puis nouveaux)
+        existing = regs[region_name].get("lieux", []) or []
+        merged = existing[:]  # copy
+        for l in lieux_list:
+            if l not in merged:
+                merged.append(l)
+        regs[region_name]["lieux"] = merged
+    else:
+        regs[region_name] = {"acronyme": acronyme or "", "lieux": list(dict.fromkeys(lieux_list))}
+
+
+def import_settings_from_excel_merge(uploaded_file, settings_obj):
+    """
+    Lit un .xlsx uploadé et fusionne son contenu dans settings_obj.
+    - uploaded_file : Streamlit UploadedFile
+    - settings_obj : dict existant (modifié in-place)
+    Retourne : dict settings_obj (modifié)
+    """
+    try:
+        xls = pd.read_excel(uploaded_file, sheet_name=None, engine="openpyxl")
+    except Exception as e:
+        raise ValueError(f"Impossible de lire le fichier Excel : {e}")
+
+    # 1) Feuille Regions (si présente)
+    if any(name.lower() == "regions" for name in xls.keys()):
+        sheet_name = next((n for n in xls.keys() if n.lower() == "regions"), None)
+        df_r = xls[sheet_name].fillna("")
+        cols = [c.strip() for c in df_r.columns]
+        region_col = next((c for c in cols if c.lower() in ("region", "région", "region_name", "regionname")), None)
+        acr_col = next((c for c in cols if c.lower() in ("acronyme", "acronym", "acro")), None)
+        lieux_col = next((c for c in cols if c.lower() in ("lieux", "lieu", "places", "locations")), None)
+
+        if region_col:
+            for _, row in df_r.iterrows():
+                region_name = str(row.get(region_col, "")).strip()
+                if not region_name:
+                    continue
+                acr = str(row.get(acr_col, "")).strip() if acr_col else ""
+                lieux_raw = str(row.get(lieux_col, "")).strip() if lieux_col else ""
+                if lieux_raw:
+                    lieux = [l.strip() for l in re.split(r"[;,]", lieux_raw) if l.strip()]
+                else:
+                    lieux = []
+                _merge_region_into_settings(settings_obj, region_name, acr, lieux)
+
+    # 2) Feuille Types (si présente)
+    if any(name.lower() == "types" for name in xls.keys()):
+        sheet_name = next((n for n in xls.keys() if n.lower() == "types"), None)
+        df_t = xls[sheet_name].fillna("")
+        cols = [c.strip() for c in df_t.columns]
+        type_col = next((c for c in cols if c.lower() in ("type", "type_borne", "type_bornes", "type_de_borne")), None)
+        if not type_col and cols:
+            type_col = cols[0]
+        if type_col:
+            existing_types = settings_obj.setdefault("types_borne", [])
+            for v in df_t[type_col].tolist():
+                t = str(v).strip()
+                if t and t not in existing_types:
+                    existing_types.append(t)
+
+    return _normalize_settings(settings_obj)
+
+
+def export_settings_to_excel_bytes(settings_obj):
+    """
+    Retourne un BytesIO contenant le fichier Excel (.xlsx)
+    """
+    regions_rows = []
+    for region, meta in (settings_obj.get("regions") or {}).items():
+        acr = meta.get("acronyme", "") if isinstance(meta, dict) else ""
+        lieux = meta.get("lieux", []) if isinstance(meta, dict) else []
+        lieux_str = ", ".join(lieux) if isinstance(lieux, list) else str(lieux)
+        regions_rows.append({"Region": region, "Acronyme": acr, "Lieux": lieux_str})
+    df_regions = pd.DataFrame(regions_rows, columns=["Region", "Acronyme", "Lieux"])
+
+    types_rows = [{"Type": t} for t in (settings_obj.get("types_borne") or [])]
+    df_types = pd.DataFrame(types_rows, columns=["Type"])
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df_regions.to_excel(writer, sheet_name="Regions", index=False)
+        df_types.to_excel(writer, sheet_name="Types", index=False)
+    output.seek(0)
+    return output
+
+
+# -----------------------
 # Navigation (sous-menu)
 # -----------------------
 st.sidebar.title("Paramètres")
@@ -181,7 +279,6 @@ def section_regions(settings):
                     # mise à jour immédiate
                     render_regions_table()
                     persist_and_notify(settings, f"Région '{key}' ajoutée.")
-                    # persist_and_notify met le flag pour rerun
 
     st.markdown("### Gérer une région existante")
     regions_list = list(settings.get("regions", {}).keys())
@@ -214,7 +311,6 @@ def section_regions(settings):
                 # mise à jour immédiate
                 render_regions_table()
                 persist_and_notify(settings, "Région mise à jour.")
-                # persist_and_notify met le flag pour rerun
 
     st.markdown("#### Supprimer la région")
     if st.button("Supprimer cette région", key=f"del_region_{sel_region}"):
@@ -225,7 +321,6 @@ def section_regions(settings):
             render_regions_table()
             _lieux_list_container.empty()
             persist_and_notify(settings, f"Région '{sel_region}' supprimée.")
-            # persist_and_notify met le flag pour rerun
 
 
 # -----------------------
@@ -245,7 +340,6 @@ def section_lieux(settings):
     sel_region = st.selectbox("Choisir une région", [""] + regions_list, key="select_lieux_region")
     if not sel_region:
         _lieux_list_container.empty()
-        # afficher uniquement le tableau régions pour contexte
         _regions_table_container.empty()
         _types_list_container.empty()
         return
@@ -273,7 +367,6 @@ def section_lieux(settings):
                     render_regions_table()
                     render_lieux_list(sel_region)
                     persist_and_notify(settings, f"Lieu '{nl}' ajouté à {sel_region}.")
-                    # persist_and_notify met le flag pour rerun
 
     st.markdown("### Supprimer des lieux")
     lieux = settings["regions"][sel_region].get("lieux", [])
@@ -286,7 +379,6 @@ def section_lieux(settings):
                 render_regions_table()
                 render_lieux_list(sel_region)
                 persist_and_notify(settings, f"{len(to_remove)} lieu(x) supprimé(s).")
-                # persist_and_notify met le flag pour rerun
             else:
                 st.warning("Aucun lieu sélectionné.")
 
@@ -317,7 +409,6 @@ def section_types(settings):
                     # mise à jour immédiate
                     render_types_list()
                     persist_and_notify(settings, f"Type '{nt}' ajouté.")
-                    # persist_and_notify met le flag pour rerun
 
     st.markdown("### Supprimer un type de borne")
     if settings.get("types_borne"):
@@ -328,13 +419,12 @@ def section_types(settings):
                 # mise à jour immédiate
                 render_types_list()
                 persist_and_notify(settings, f"{len(rem)} type(s) supprimé(s).")
-                # persist_and_notify met le flag pour rerun
             else:
                 st.warning("Aucun type sélectionné.")
 
 
 # -----------------------
-# Section: Import / Export
+# Section: Import / Export (JSON + Excel fusion)
 # -----------------------
 def section_import_export(settings):
     st.header("Import / Export rapide")
@@ -345,32 +435,44 @@ def section_import_export(settings):
 
     col_imp, col_exp = st.columns(2)
     with col_imp:
-        st.subheader("Importer settings depuis JSON")
-        uploaded = st.file_uploader("Charger un fichier JSON", type=["json"])
-        if uploaded is not None:
+        st.subheader("Importer settings depuis JSON ou Excel")
+        uploaded_json = st.file_uploader("Charger un fichier JSON", type=["json"])
+        uploaded_xlsx = st.file_uploader("Ou charger un fichier Excel (.xlsx) (ex: CONSO_CUPRA.xlsx)", type=["xlsx", "xls"])
+        if uploaded_json is not None:
             try:
-                loaded = json.load(uploaded)
+                loaded = json.load(uploaded_json)
                 if not isinstance(loaded, dict):
                     st.error("Le fichier JSON doit contenir un objet racine.")
                 else:
                     loaded = _normalize_settings(loaded)
-                    # remplacer settings global proprement
                     settings.clear()
                     settings.update(loaded)
-                    # mise à jour immédiate
-                    render_regions_table()
-                    render_types_list()
-                    _lieux_list_container.empty()
+                    render_regions_table(); render_types_list(); _lieux_list_container.empty()
                     persist_and_notify(settings, "Paramètres importés depuis JSON.")
-                    # persist_and_notify met le flag pour rerun
             except Exception as e:
-                st.error(f"Erreur lors de l'import : {e}")
+                st.error(f"Erreur lors de l'import JSON : {e}")
+
+        if uploaded_xlsx is not None:
+            try:
+                # fusionner dans les settings existants (ne remplace pas tout)
+                settings = import_settings_from_excel_merge(uploaded_xlsx, settings)
+                # mise à jour immédiate des affichages
+                render_regions_table()
+                render_types_list()
+                _lieux_list_container.empty()
+                persist_and_notify(settings, "Paramètres mis à jour depuis Excel (fusion).")
+            except Exception as e:
+                st.error(f"Erreur lors de l'import Excel : {e}")
 
     with col_exp:
-        st.subheader("Télécharger les settings actuels")
+        st.subheader("Exporter settings")
+        # Export JSON
         buf = io.StringIO()
         json.dump(settings, buf, ensure_ascii=False, indent=2)
         st.download_button("Télécharger settings.json", data=buf.getvalue(), file_name="settings.json", mime="application/json")
+        # Export Excel
+        excel_bytes = export_settings_to_excel_bytes(settings)
+        st.download_button("Télécharger settings.xlsx", data=excel_bytes.getvalue(), file_name="settings.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     st.markdown("---")
     st.caption("Les modifications sont persistées dans data/settings.json via utils.save_settings().")

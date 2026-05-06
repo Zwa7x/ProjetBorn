@@ -12,7 +12,7 @@ st.set_page_config(page_title="Reporting", layout="wide")
 # 1) Lecture du fichier source
 # -------------------------
 # Remplacez ce chemin par le vôtre ou adaptez la lecture (CSV/Excel)
-DATA_PATH = "data/CONSO_CUPRA.csv"  # <-- modifier ici si besoin
+DATA_PATH = "data/CONSO_CUPRA.xlsx"  # <-- modifier ici si besoin
 
 def read_data(path):
     if not os.path.exists(path):

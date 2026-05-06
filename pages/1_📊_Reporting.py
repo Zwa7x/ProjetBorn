@@ -369,24 +369,36 @@ if "LIEUX" in df_filtered.columns:
     try:
         sessions = df_filtered["LIEUX"].value_counts()
         if not sessions.empty:
+            # Construire DataFrame propre sans ambiguïté de noms
+            sessions_df = sessions.reset_index()
+            sessions_df.columns = ["LIEUX", "count"]  # nommage explicite et unique
+
+            # Méthode de regroupement
             if group_method == "Regrouper celles à 1 session":
-                mask_others = sessions == 1
-                others_count = int(sessions[mask_others].sum())
-                main = sessions[~mask_others]
+                main_df = sessions_df[sessions_df["count"] != 1].copy()
+                others_count = int(sessions_df[sessions_df["count"] == 1]["count"].sum())
             else:  # Top N
-                main = sessions.head(top_n)
-                others_count = int(sessions.iloc[top_n:].sum()) if len(sessions) > top_n else 0
+                main_df = sessions_df.head(top_n).copy()
+                others_count = int(sessions_df.iloc[top_n:]["count"].sum()) if len(sessions_df) > top_n else 0
 
-            pie_df = pd.DataFrame({"LIEUX": main.index, "count": main.values})
+            # Ajouter la ligne "Autres" si nécessaire
             if others_count > 0:
-                pie_df = pd.concat([pie_df, pd.DataFrame([{"LIEUX": "Autres", "count": others_count}])], ignore_index=True)
+                others_row = pd.DataFrame([{"LIEUX": "Autres", "count": others_count}])
+                pie_df = pd.concat([main_df, others_row], ignore_index=True)
+            else:
+                pie_df = main_df
 
+            # Tri pour affichage (optionnel)
+            pie_df = pie_df.sort_values("count", ascending=False)
+
+            # Pie chart
             fig_sessions = px.pie(pie_df, names="LIEUX", values="count", hole=0.5, title="Répartition des sessions par station")
             fig_sessions.update_traces(textinfo='percent+value', textposition='inside')
             st.plotly_chart(fig_sessions, use_container_width=True)
 
+            # Détail transparent (top 50) — utilise sessions_df (noms uniques)
             with st.expander("Voir le détail des stations (top 50)"):
-                st.dataframe(sessions.reset_index().rename(columns={"index":"LIEUX", "LIEUX":"count"}).head(50))
+                st.dataframe(sessions_df.head(50))
         else:
             st.info("Aucune session pour afficher la répartition.")
     except Exception as e:
@@ -394,6 +406,7 @@ if "LIEUX" in df_filtered.columns:
         st.text(traceback.format_exc())
 else:
     st.info("Colonne LIEUX manquante pour la répartition des sessions.")
+
 
 # -------------------------
 # Donut : coût par région

@@ -3,8 +3,6 @@ import streamlit as st
 import pandas as pd
 import json
 import io
-import re
-from io import BytesIO
 from utils import load_settings, save_settings
 
 st.set_page_config(page_title="Settings", layout="wide")
@@ -76,7 +74,6 @@ _regions_table_container = st.empty()
 _lieux_list_container = st.empty()
 _types_list_container = st.empty()
 _message_container = st.empty()
-_debug_container = st.expander("Debug import Excel (ouvrir si nécessaire)", expanded=False)
 
 # -----------------------
 # Helpers locaux (sauvegarde sûre + rerun via session_state)
@@ -130,7 +127,7 @@ def render_types_list():
     if types_list:
         with _types_list_container.container():
             st.write("Types actuels")
-            for i, t in enumerate(types_list):
+            for t in types_list:
                 st.write(f"- **{t}**")
     else:
         _types_list_container.info("Aucun type de borne défini.")
@@ -151,140 +148,9 @@ def render_lieux_list(sel_region):
 
 
 # -----------------------
-# Fonctions d'import Excel (fusion intelligente)
-# -----------------------
-def _merge_region_into_settings(settings_obj, region_name, acronyme, lieux_list):
-    regs = settings_obj.setdefault("regions", {})
-    if region_name in regs:
-        if acronyme:
-            regs[region_name]["acronyme"] = acronyme
-        existing = regs[region_name].get("lieux", []) or []
-        merged = existing[:]
-        for l in lieux_list:
-            if l not in merged:
-                merged.append(l)
-        regs[region_name]["lieux"] = merged
-    else:
-        regs[region_name] = {"acronyme": acronyme or "", "lieux": list(dict.fromkeys(lieux_list))}
-
-
-def import_settings_from_excel_merge(uploaded_file, settings_obj, debug=False):
-    try:
-        xls = pd.read_excel(uploaded_file, sheet_name=None, engine="openpyxl")
-    except Exception as e:
-        raise ValueError(f"Impossible de lire le fichier Excel : {e}")
-
-    if debug:
-        with _debug_container:
-            st.write("Feuilles trouvées :", list(xls.keys()))
-
-    # Regions
-    sheet_regions = next((n for n in xls.keys() if n.lower().strip() == "regions"), None)
-    if sheet_regions:
-        df_r = xls[sheet_regions].fillna("")
-        cols = [c.strip() for c in df_r.columns]
-        region_col = next((c for c in cols if c.lower() in ("region", "région", "region_name", "regionname")), None)
-        acr_col = next((c for c in cols if c.lower() in ("acronyme", "acronym", "acro")), None)
-        lieux_col = next((c for c in cols if c.lower() in ("lieux", "lieu", "places", "locations")), None)
-
-        if debug:
-            with _debug_container:
-                st.write(f"Feuille Regions colonnes: {cols}")
-                st.write("Detected columns:", {"region_col": region_col, "acronyme_col": acr_col, "lieux_col": lieux_col})
-                st.dataframe(df_r.head(5))
-
-        if region_col:
-            for _, row in df_r.iterrows():
-                region_name = str(row.get(region_col, "")).strip()
-                if not region_name:
-                    continue
-                acr = str(row.get(acr_col, "")).strip() if acr_col else ""
-                lieux_raw = str(row.get(lieux_col, "")).strip() if lieux_col else ""
-                if lieux_raw:
-                    lieux = [l.strip() for l in re.split(r"[;,]", lieux_raw) if l.strip()]
-                else:
-                    lieux = []
-                _merge_region_into_settings(settings_obj, region_name, acr, lieux)
-    else:
-        if debug:
-            with _debug_container:
-                st.warning("Feuille 'Regions' non trouvée (vérifie le nom de l'onglet).")
-
-    # Types
-    sheet_types = next((n for n in xls.keys() if n.lower().strip() == "types"), None)
-    if sheet_types:
-        df_t = xls[sheet_types].fillna("")
-        cols = [c.strip() for c in df_t.columns]
-        type_col = next((c for c in cols if c.lower() in ("type", "type_borne", "type_bornes", "type_de_borne")), None)
-        if not type_col and cols:
-            type_col = cols[0]
-        if debug:
-            with _debug_container:
-                st.write(f"Feuille Types colonnes: {cols}")
-                st.dataframe(df_t.head(5))
-        if type_col:
-            existing_types = settings_obj.setdefault("types_borne", [])
-            for v in df_t[type_col].tolist():
-                t = str(v).strip()
-                if t and t not in existing_types:
-                    existing_types.append(t)
-    else:
-        if debug:
-            with _debug_container:
-                st.info("Feuille 'Types' non trouvée (optionnel).")
-
-    return _normalize_settings(settings_obj)
-
-
-# -----------------------
-# Navigation (sous-menu)
+# Navigation (sous-menu simple)
 # -----------------------
 st.sidebar.title("Paramètres")
-# Ajout d'un uploader d'initialisation Excel dans la sidebar (remplace la section Import/Export)
-st.sidebar.markdown("### Initialiser listes depuis Excel")
-uploaded_init_xlsx = st.sidebar.file_uploader("Charger CONSO_CUPRA.xlsx (optionnel)", type=["xlsx", "xls"], key="uploader_init")
-init_mode = st.sidebar.radio("Mode", ("Fusionner (ajouter)", "Remplacer complètement"), index=0, key="init_mode")
-init_debug = st.sidebar.checkbox("Afficher debug import", value=False, key="init_debug")
-if uploaded_init_xlsx is not None:
-    try:
-        # lire pour prévisualisation (sans modifier settings)
-        xls_preview = pd.read_excel(uploaded_init_xlsx, sheet_name=None, engine="openpyxl")
-        st.sidebar.write("Feuilles trouvées :", list(xls_preview.keys()))
-        # preview Regions
-        sheet_regions = next((n for n in xls_preview.keys() if n.lower().strip() == "regions"), None)
-        if sheet_regions:
-            df_r_preview = xls_preview[sheet_regions].fillna("")
-            st.sidebar.markdown("**Aperçu Regions (5 premières lignes)**")
-            st.sidebar.dataframe(df_r_preview.head(5))
-        else:
-            st.sidebar.info("Feuille 'Regions' non trouvée dans le fichier (attendue pour initialisation).")
-        # preview Types
-        sheet_types = next((n for n in xls_preview.keys() if n.lower().strip() == "types"), None)
-        if sheet_types:
-            df_t_preview = xls_preview[sheet_types].fillna("")
-            st.sidebar.markdown("**Aperçu Types (5 premières lignes)**")
-            st.sidebar.dataframe(df_t_preview.head(5))
-        else:
-            st.sidebar.info("Feuille 'Types' non trouvée (optionnel).")
-        # bouton d'application
-        if st.sidebar.button("Appliquer l'initialisation depuis Excel"):
-            # repositionner le buffer pour relecture dans la fonction (UploadedFile est consommable)
-            uploaded_init_xlsx.seek(0)
-            if init_mode == "Remplacer complètement":
-                new_settings = import_settings_from_excel_merge(uploaded_init_xlsx, {"regions": {}, "types_borne": []}, debug=init_debug)
-                settings.clear()
-                settings.update(new_settings)
-                persist_and_notify(settings, "Paramètres remplacés depuis CONSO_CUPRA.xlsx.")
-            else:
-                settings = import_settings_from_excel_merge(uploaded_init_xlsx, settings, debug=init_debug)
-                persist_and_notify(settings, "Paramètres fusionnés depuis CONSO_CUPRA.xlsx.")
-            # mise à jour immédiate des affichages
-            render_regions_table()
-            render_types_list()
-            _lieux_list_container.empty()
-    except Exception as e:
-        st.sidebar.error(f"Erreur lors de la lecture du fichier Excel : {e}")
-
 section = st.sidebar.radio("Choisir la liste à modifier", ("Régions", "Lieux (par région)", "Types de borne"))
 
 # -----------------------

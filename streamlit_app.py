@@ -1,5 +1,5 @@
 import streamlit as st
-from utils import load_data
+from utils import load_data, save_data
 
 st.set_page_config(page_title="Suivi de consommation – CUPRA Born", layout="wide")
 

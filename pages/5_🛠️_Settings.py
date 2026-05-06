@@ -151,7 +151,7 @@ def render_lieux_list(sel_region):
 
 
 # -----------------------
-# Fonctions d'import/export Excel (fusion intelligente)
+# Fonctions d'import Excel (fusion intelligente)
 # -----------------------
 def _merge_region_into_settings(settings_obj, region_name, acronyme, lieux_list):
     regs = settings_obj.setdefault("regions", {})
@@ -236,31 +236,56 @@ def import_settings_from_excel_merge(uploaded_file, settings_obj, debug=False):
     return _normalize_settings(settings_obj)
 
 
-def export_settings_to_excel_bytes(settings_obj):
-    regions_rows = []
-    for region, meta in (settings_obj.get("regions") or {}).items():
-        acr = meta.get("acronyme", "") if isinstance(meta, dict) else ""
-        lieux = meta.get("lieux", []) if isinstance(meta, dict) else []
-        lieux_str = ", ".join(lieux) if isinstance(lieux, list) else str(lieux)
-        regions_rows.append({"Region": region, "Acronyme": acr, "Lieux": lieux_str})
-    df_regions = pd.DataFrame(regions_rows, columns=["Region", "Acronyme", "Lieux"])
-
-    types_rows = [{"Type": t} for t in (settings_obj.get("types_borne") or [])]
-    df_types = pd.DataFrame(types_rows, columns=["Type"])
-
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df_regions.to_excel(writer, sheet_name="Regions", index=False)
-        df_types.to_excel(writer, sheet_name="Types", index=False)
-    output.seek(0)
-    return output
-
-
 # -----------------------
 # Navigation (sous-menu)
 # -----------------------
 st.sidebar.title("Paramètres")
-section = st.sidebar.radio("Choisir la liste à modifier", ("Régions", "Lieux (par région)", "Types de borne", "Import / Export"))
+# Ajout d'un uploader d'initialisation Excel dans la sidebar (remplace la section Import/Export)
+st.sidebar.markdown("### Initialiser listes depuis Excel")
+uploaded_init_xlsx = st.sidebar.file_uploader("Charger CONSO_CUPRA.xlsx (optionnel)", type=["xlsx", "xls"], key="uploader_init")
+init_mode = st.sidebar.radio("Mode", ("Fusionner (ajouter)", "Remplacer complètement"), index=0, key="init_mode")
+init_debug = st.sidebar.checkbox("Afficher debug import", value=False, key="init_debug")
+if uploaded_init_xlsx is not None:
+    try:
+        # lire pour prévisualisation (sans modifier settings)
+        xls_preview = pd.read_excel(uploaded_init_xlsx, sheet_name=None, engine="openpyxl")
+        st.sidebar.write("Feuilles trouvées :", list(xls_preview.keys()))
+        # preview Regions
+        sheet_regions = next((n for n in xls_preview.keys() if n.lower().strip() == "regions"), None)
+        if sheet_regions:
+            df_r_preview = xls_preview[sheet_regions].fillna("")
+            st.sidebar.markdown("**Aperçu Regions (5 premières lignes)**")
+            st.sidebar.dataframe(df_r_preview.head(5))
+        else:
+            st.sidebar.info("Feuille 'Regions' non trouvée dans le fichier (attendue pour initialisation).")
+        # preview Types
+        sheet_types = next((n for n in xls_preview.keys() if n.lower().strip() == "types"), None)
+        if sheet_types:
+            df_t_preview = xls_preview[sheet_types].fillna("")
+            st.sidebar.markdown("**Aperçu Types (5 premières lignes)**")
+            st.sidebar.dataframe(df_t_preview.head(5))
+        else:
+            st.sidebar.info("Feuille 'Types' non trouvée (optionnel).")
+        # bouton d'application
+        if st.sidebar.button("Appliquer l'initialisation depuis Excel"):
+            # repositionner le buffer pour relecture dans la fonction (UploadedFile est consommable)
+            uploaded_init_xlsx.seek(0)
+            if init_mode == "Remplacer complètement":
+                new_settings = import_settings_from_excel_merge(uploaded_init_xlsx, {"regions": {}, "types_borne": []}, debug=init_debug)
+                settings.clear()
+                settings.update(new_settings)
+                persist_and_notify(settings, "Paramètres remplacés depuis CONSO_CUPRA.xlsx.")
+            else:
+                settings = import_settings_from_excel_merge(uploaded_init_xlsx, settings, debug=init_debug)
+                persist_and_notify(settings, "Paramètres fusionnés depuis CONSO_CUPRA.xlsx.")
+            # mise à jour immédiate des affichages
+            render_regions_table()
+            render_types_list()
+            _lieux_list_container.empty()
+    except Exception as e:
+        st.sidebar.error(f"Erreur lors de la lecture du fichier Excel : {e}")
+
+section = st.sidebar.radio("Choisir la liste à modifier", ("Régions", "Lieux (par région)", "Types de borne"))
 
 # -----------------------
 # Section: Régions (création / renommage / suppression)
@@ -423,75 +448,6 @@ def section_types(settings):
 
 
 # -----------------------
-# Section: Import / Export (JSON + Excel fusion ou remplacement)
-# -----------------------
-def section_import_export(settings):
-    st.header("Import / Export rapide")
-    _regions_table_container.empty()
-    _lieux_list_container.empty()
-    _types_list_container.empty()
-
-    col_imp, col_exp = st.columns(2)
-    with col_imp:
-        st.subheader("Importer settings depuis JSON ou Excel")
-        mode = st.radio("Mode d'import", ("Fusionner (ajouter)", "Remplacer complètement"), index=0)
-        uploaded_json = st.file_uploader("Charger un fichier JSON", type=["json"])
-        uploaded_xlsx = st.file_uploader("Ou charger un fichier Excel (.xlsx) (ex: CONSO_CUPRA.xlsx)", type=["xlsx", "xls"])
-
-        if uploaded_json is not None:
-            try:
-                loaded = json.load(uploaded_json)
-                if not isinstance(loaded, dict):
-                    st.error("Le fichier JSON doit contenir un objet racine.")
-                else:
-                    loaded = _normalize_settings(loaded)
-                    if mode == "Remplacer complètement":
-                        settings.clear()
-                        settings.update(loaded)
-                    else:
-                        # fusion simple: ajouter régions/types sans supprimer existants
-                        for r, meta in loaded.get("regions", {}).items():
-                            _merge_region_into_settings(settings, r, meta.get("acronyme", ""), meta.get("lieux", []))
-                        for t in loaded.get("types_borne", []):
-                            if t not in settings.setdefault("types_borne", []):
-                                settings["types_borne"].append(t)
-                        settings = _normalize_settings(settings)
-                    render_regions_table(); render_types_list(); _lieux_list_container.empty()
-                    persist_and_notify(settings, "Paramètres importés depuis JSON.")
-            except Exception as e:
-                st.error(f"Erreur lors de l'import JSON : {e}")
-
-        if uploaded_xlsx is not None:
-            try:
-                debug_flag = st.checkbox("Activer debug import Excel (affiche feuilles/colonnes)", value=False)
-                if mode == "Remplacer complètement":
-                    # construire un settings vide puis remplacer
-                    new_settings = import_settings_from_excel_merge(uploaded_xlsx, {"regions": {}, "types_borne": []}, debug=debug_flag)
-                    settings.clear()
-                    settings.update(new_settings)
-                else:
-                    # fusionner dans settings existants
-                    settings = import_settings_from_excel_merge(uploaded_xlsx, settings, debug=debug_flag)
-                render_regions_table()
-                render_types_list()
-                _lieux_list_container.empty()
-                persist_and_notify(settings, "Paramètres mis à jour depuis Excel.")
-            except Exception as e:
-                st.error(f"Erreur lors de l'import Excel : {e}")
-
-    with col_exp:
-        st.subheader("Exporter settings")
-        buf = io.StringIO()
-        json.dump(settings, buf, ensure_ascii=False, indent=2)
-        st.download_button("Télécharger settings.json", data=buf.getvalue(), file_name="settings.json", mime="application/json")
-        excel_bytes = export_settings_to_excel_bytes(settings)
-        st.download_button("Télécharger settings.xlsx", data=excel_bytes.getvalue(), file_name="settings.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-    st.markdown("---")
-    st.caption("Les modifications sont persistées dans data/settings.json via utils.save_settings().")
-
-
-# -----------------------
 # Dispatcher: afficher la section choisie
 # -----------------------
 if section == "Régions":
@@ -500,8 +456,6 @@ elif section == "Lieux (par région)":
     section_lieux(settings)
 elif section == "Types de borne":
     section_types(settings)
-elif section == "Import / Export":
-    section_import_export(settings)
 
 # -----------------------
 # Exécute le rerun si demandé (sécurisé)

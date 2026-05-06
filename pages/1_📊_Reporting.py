@@ -1,330 +1,142 @@
+# 1_📊_Reporting.py
+# Script Streamlit pour reporting — version robuste pour éviter KeyError / NameError
 import streamlit as st
-import plotly.express as px
-import plotly.graph_objects as go
 import pandas as pd
-from utils import load_data
+import unicodedata
+import difflib
+import os
 
-import streamlit as st
+st.set_page_config(page_title="Reporting", layout="wide")
+
+# -------------------------
+# 1) Lecture du fichier source
+# -------------------------
+# Remplacez ce chemin par le vôtre ou adaptez la lecture (CSV/Excel)
+DATA_PATH = "chemin/vers/votre_fichier.csv"  # <-- modifier ici si besoin
+
+def read_data(path):
+    if not os.path.exists(path):
+        st.error(f"Fichier introuvable : {path}")
+        return pd.DataFrame()
+    # Détecter extension
+    ext = os.path.splitext(path)[1].lower()
+    try:
+        if ext in [".csv"]:
+            # Exemple pour CSV français : séparateur ; et décimale ,
+            df = pd.read_csv(path, sep=';', encoding='utf-8', decimal=',', dtype=str)
+        elif ext in [".xls", ".xlsx"]:
+            df = pd.read_excel(path, dtype=str)
+        else:
+            # Tentative générique
+            df = pd.read_csv(path, dtype=str)
+    except Exception as e:
+        st.error(f"Erreur lecture fichier : {e}")
+        df = pd.DataFrame()
+    # Nettoyage basique des noms de colonnes
+    df.columns = df.columns.str.strip()
+    return df
+
+df = read_data(DATA_PATH)
+
+# -------------------------
+# 2) Définir df_filtered (adapter ici vos filtres)
+# -------------------------
+# Si vous avez déjà une logique de filtrage, collez-la ici.
+# Par défaut on prend tout le DataFrame lu.
+try:
+    # --- APPLIQUEZ VOS FILTRES ICI ---
+    # Exemple : df_filtered = df[df["Statut"] == "Valide"]
+    # Si vous n'avez pas de filtre, on copie tout :
+    df_filtered = df.copy()
+except Exception as e:
+    st.error(f"Erreur lors de la définition de df_filtered : {e}")
+    df_filtered = df.copy()
+
+# -------------------------
+# 3) Debug : afficher colonnes et aperçu
+# -------------------------
 st.write("=== DEBUG : colonnes et aperçu du DataFrame ===")
 try:
+    st.write("Nombre de lignes :", len(df_filtered))
     st.write("Colonnes disponibles :", df_filtered.columns.tolist())
     st.write("Aperçu des 5 premières lignes :", df_filtered.head())
 except Exception as e:
     st.error(f"Impossible d'afficher df_filtered: {e}")
 
+# -------------------------
+# 4) Normalisation des noms de colonnes et recherche de la colonne prix
+# -------------------------
+def normalize_colname(name):
+    name = str(name).strip().lower()
+    name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
+    name = " ".join(name.split())
+    return name
 
-# --- MODE SOMBRE CUPRA ---
-if "theme_cupra" in st.session_state and st.session_state.theme_cupra:
-    st.markdown("""
-    <style>
-    body, .stApp { background-color: #0d0d0d; color: #e6e6e6; }
-    h1, h2, h3, h4 { color: #d47f2a !important; }
-    .js-plotly-plot .plotly .main-svg { background-color: #0d0d0d !important; }
-    .stButton>button { background-color: #d47f2a; color: white; border-radius: 8px; border: none; }
-    .stButton>button:hover { background-color: #b86c22; }
-    .stSelectbox>div>div { background-color: #1a1a1a; color: #e6e6e6; }
-    </style>
-    """, unsafe_allow_html=True)
+# Construire mapping original <-> normalisé
+cols_orig = df_filtered.columns.tolist()
+cols_norm = [normalize_colname(c) for c in cols_orig]
+col_map = dict(zip(cols_norm, cols_orig))
 
-st.header("📊 Reporting")
+# Travailler sur une copie normalisée pour éviter surprises
+df_norm = df_filtered.copy()
+df_norm.columns = cols_norm
 
-df = load_data()
+# Nom cible normalisé
+target_norm = normalize_colname("Prix du KwH")
 
-# --- FILTRES ---
-st.subheader("🔍 Filtres")
-
-regions = df["REGION"].dropna().unique()
-region_filter = st.selectbox("Région", ["Toutes"] + list(regions))
-
-df_temp = df.copy()
-if region_filter != "Toutes":
-    df_temp = df_temp[df_temp["REGION"] == region_filter]
-
-lieux = df_temp["LIEUX"].dropna().unique()
-lieu_filter = st.selectbox("Lieu", ["Tous"] + list(lieux))
-
-df_filtered = df_temp.copy()
-if lieu_filter != "Tous":
-    df_filtered = df_filtered[df_filtered["LIEUX"] == lieu_filter]
-
-st.divider()
-
-# --- RÉSUMÉ GLOBAL ---
-st.subheader("📌 Résumé global")
-
-# 1) On calcule les valeurs AVANT d'appeler card()
-cout_total = df_filtered["Cout"].sum()
-prix_kwh_global = df_filtered["Prix du KwH"].astype(float).mean()
-vitesse_moyenne_global = df_filtered["Vitesse kw/min"].mean() if "Vitesse kw/min" in df_filtered.columns else None
-temps_total = df_filtered["TEMPS en min"].sum() if "TEMPS en min" in df_filtered.columns else None
-
-# 2) On définit la fonction card()
-def card(label, value, accent=None):
-    return f"""
-    <div style='padding:14px; border-radius:10px; background-color:#1a1a1a; color:#e6e6e6;'>
-        <div style='font-size:14px; opacity:0.8;'>{label}</div>
-        <div style='font-size:22px; font-weight:600;'>{value}</div>
-        {f"<div style='font-size:14px; color:#d47f2a;'>{accent}</div>" if accent else ""}
-    </div>
-    """
-
-# 3) On affiche les cartes
-colA, colB, colC, colD = st.columns(4)
-
-colA.markdown(card("Coût total (€)", f"{cout_total:.2f}"), unsafe_allow_html=True)
-colB.markdown(card("Prix moyen du kWh", f"{prix_kwh_global:.3f} €/kWh"), unsafe_allow_html=True)
-colC.markdown(card("Vitesse moyenne", f"{vitesse_moyenne_global:.2f} kw/min" if vitesse_moyenne_global else "N/A"), unsafe_allow_html=True)
-colD.markdown(card("Temps total", f"{temps_total:.1f} min" if temps_total else "N/A"), unsafe_allow_html=True)
-
-st.divider()
-
-# --- INDICATEURS CLÉS ---
-st.subheader("📈 Indicateurs clés")
-
-# 1) Calcul des valeurs AVANT l'affichage
-prix_kwh_moyen_all = (
-    df_filtered.groupby("LIEUX")["Prix du KwH"]
-    .mean()
-    .sort_values()
-)
-
-if "Vitesse kw/min" in df_filtered.columns:
-    vitesse_moyenne_all = (
-        df_filtered.groupby("LIEUX")["Vitesse kw/min"]
-        .mean()
-        .sort_values(ascending=False)
-    )
+# Trouver la meilleure correspondance
+col_to_use = None
+if target_norm in df_norm.columns:
+    col_to_use = target_norm
 else:
-    vitesse_moyenne_all = None
+    matches = difflib.get_close_matches(target_norm, df_norm.columns, n=3, cutoff=0.5)
+    st.write("Nom cible normalisé :", target_norm)
+    st.write("Correspondances proches trouvées :", matches)
+    if matches:
+        col_to_use = matches[0]
+        st.info(f"Utilisation de la colonne approchante : '{col_to_use}' (nom original: '{col_map.get(col_to_use)}')")
+    else:
+        st.error("Colonne 'Prix du KwH' introuvable après normalisation. Vérifiez l'import ou le pré-traitement.")
 
-nb_sessions = len(df_filtered)
-
-# 2) Fonction carte HTML CUPRA
-def card(label, value, accent=None):
-    return f"""
-    <div style='padding:14px; border-radius:10px; background-color:#1a1a1a; color:#e6e6e6;'>
-        <div style='font-size:14px; opacity:0.8;'>{label}</div>
-        <div style='font-size:20px; font-weight:600;'>{value}</div>
-        {f"<div style='font-size:14px; color:#d47f2a;'>{accent}</div>" if accent else ""}
-    </div>
-    """
-
-# 3) Affichage des cartes
-col1, col2, col3 = st.columns(3)
-
-# Station la moins chère
-if len(prix_kwh_moyen_all) > 0:
-    station_cheap = prix_kwh_moyen_all.index[0]
-    prix_cheap = prix_kwh_moyen_all.iloc[0]
-    col1.markdown(
-        card("Station la moins chère", station_cheap, f"{prix_cheap:.3f} €/kWh"),
-        unsafe_allow_html=True
-    )
+# -------------------------
+# 5) Conversion en numérique et calcul de la moyenne
+# -------------------------
+prix_kwh_global = None
+if col_to_use:
+    try:
+        # Nettoyage des valeurs : remplacer virgule décimale, retirer symbole euro, espaces
+        s = df_norm[col_to_use].astype(str).str.replace('\xa0', ' ', regex=False)
+        s = s.str.replace('€', '', regex=False)
+        s = s.str.replace(',', '.', regex=False)
+        s = s.str.strip()
+        # Conversion forcée en numérique
+        s_num = pd.to_numeric(s, errors='coerce')
+        valid_count = s_num.notna().sum()
+        st.write(f"Nombre de valeurs numériques valides dans la colonne choisie : {valid_count}")
+        if valid_count == 0:
+            st.warning("Aucune valeur numérique valide trouvée dans la colonne prix. Vérifiez le format des données.")
+        prix_kwh_global = s_num.mean()
+        st.write("**Prix kWh moyen :**", prix_kwh_global)
+    except Exception as e:
+        st.error(f"Erreur lors du calcul du prix kWh : {e}")
 else:
-    col1.markdown(card("Station la moins chère", "N/A"), unsafe_allow_html=True)
+    st.warning("Calcul du prix kWh ignoré car aucune colonne correspondante n'a été trouvée.")
 
-# Station la plus rapide
-if vitesse_moyenne_all is not None and len(vitesse_moyenne_all) > 0:
-    station_fast = vitesse_moyenne_all.index[0]
-    vitesse_fast = vitesse_moyenne_all.iloc[0]
-    col2.markdown(
-        card("Station la plus rapide", station_fast, f"{vitesse_fast:.2f} kw/min"),
-        unsafe_allow_html=True
-    )
-else:
-    col2.markdown(card("Station la plus rapide", "N/A"), unsafe_allow_html=True)
+# -------------------------
+# 6) Option : renommer définitivement la colonne dans df_filtered (si vous le souhaitez)
+# -------------------------
+# Exemple : si vous voulez standardiser le nom dans le DataFrame original
+if col_to_use:
+    original_name = col_map.get(col_to_use, col_to_use)
+    # Renommer dans df_filtered original
+    try:
+        df_filtered = df_filtered.rename(columns={original_name: "Prix du KwH"})
+        st.write("Colonne renommée en 'Prix du KwH' dans df_filtered.")
+    except Exception as e:
+        st.warning(f"Impossible de renommer la colonne : {e}")
 
-# Nombre de sessions
-col3.markdown(
-    card("Nombre de sessions", f"{nb_sessions}"),
-    unsafe_allow_html=True
-)
-
-st.divider()
-
-
-# --- TOP 10 MOINS CHÈRES ---
-st.subheader("💚 Top 10 des stations les moins chères (€/kWh)")
-
-prix_kwh_moyen = (
-    df_filtered.groupby("LIEUX")["Prix du KwH"]
-    .mean()
-    .sort_values()
-    .head(10)
-    .reset_index()
-    .iloc[::-1]  # inversion pour afficher la moins chère en haut
-)
-
-fig_low = px.bar(
-    prix_kwh_moyen,
-    x="Prix du KwH",
-    y="LIEUX",
-    orientation="h",
-    title="Top 10 des stations les moins chères (€/kWh)",
-)
-
-fig_low.update_traces(
-    texttemplate='%{x:.3f}',
-    textposition='outside'
-)
-
-st.plotly_chart(fig_low, use_container_width=True)
-
-# --- TOP 10 PLUS CHÈRES ---
-st.subheader("❤️ Top 10 des stations les plus chères (€/kWh)")
-
-prix_kwh_moyen_high = (
-    df_filtered.groupby("LIEUX")["Prix du KwH"]
-    .mean()
-    .sort_values(ascending=False)
-    .head(10)
-    .reset_index()
-    .iloc[::-1]
-)
-
-fig_high = px.bar(
-    prix_kwh_moyen_high,
-    x="Prix du KwH",
-    y="LIEUX",
-    orientation="h",
-    title="Top 10 des stations les plus chères (€/kWh)",
-)
-
-fig_high.update_traces(
-    texttemplate='%{x:.3f}',
-    textposition='outside'
-)
-
-st.plotly_chart(fig_high, use_container_width=True)
-
-st.divider()
-
-# --- TOP 10 PLUS RAPIDES ---
-st.subheader("⚡ Top 10 des stations les plus rapides (kw/min)")
-
-if "Vitesse kw/min" in df_filtered.columns:
-    vitesse_moyenne_full = (
-        df_filtered.groupby("LIEUX")["Vitesse kw/min"]
-        .mean()
-        .sort_values(ascending=False)
-        .head(10)
-        .reset_index()
-        .iloc[::-1]
-    )
-
-    fig_fast = px.bar(
-        vitesse_moyenne_full,
-        x="Vitesse kw/min",
-        y="LIEUX",
-        orientation="h",
-        title="Top 10 des stations les plus rapides (kw/min)",
-    )
-
-    fig_fast.update_traces(
-        texttemplate='%{x:.2f}',
-        textposition='outside'
-    )
-
-    st.plotly_chart(fig_fast, use_container_width=True)
-
-st.divider()
-
-# --- DONUT : SESSIONS ---
-st.subheader("🧁 Répartition du nombre de sessions par station")
-
-sessions = df_filtered["LIEUX"].value_counts()
-if len(sessions) > 0:
-    fig_sessions = px.pie(
-        names=sessions.index,
-        values=sessions.values,
-        hole=0.5,
-        title="Répartition des sessions par station"
-    )
-    fig_sessions.update_traces(textinfo='value')
-    st.plotly_chart(fig_sessions, use_container_width=True)
-
-# --- DONUT : COÛT PAR RÉGION ---
-st.subheader("🧁 Répartition du coût total par région")
-
-cout_region = df_filtered.groupby("REGION")["Cout"].sum()
-if len(cout_region) > 0:
-    fig_region = px.pie(
-        names=cout_region.index,
-        values=cout_region.values,
-        hole=0.5,
-        title="Répartition du coût total par région"
-    )
-    fig_region.update_traces(textinfo='value')
-    st.plotly_chart(fig_region, use_container_width=True)
-
-# --- DONUT : TEMPS PAR TYPE DE BORNE ---
-st.subheader("🧁 Répartition du temps passé par type de borne")
-
-if "TYPE_BORNE" in df_filtered.columns and "TEMPS en min" in df_filtered.columns:
-    temps_borne = df_filtered.groupby("TYPE_BORNE")["TEMPS en min"].sum()
-    fig_temps = px.pie(
-        names=temps_borne.index,
-        values=temps_borne.values,
-        hole=0.5,
-        title="Répartition du temps passé par type de borne"
-    )
-    fig_temps.update_traces(textinfo='label+value')
-    st.plotly_chart(fig_temps, use_container_width=True)
-
-st.divider()
-
-# --- RADAR CHART ---
-st.subheader("🛡️ Comparatif entre deux stations")
-
-stations = df_filtered["LIEUX"].dropna().unique()
-colA, colB = st.columns(2)
-station_A = colA.selectbox("Station A", stations)
-station_B = colB.selectbox("Station B", stations)
-
-def stats_station(df, station):
-    subset = df[df["LIEUX"] == station]
-    return {
-        "Prix moyen du kWh": subset["Prix du KwH"].mean(),
-        "Vitesse moyenne (kw/min)": subset["Vitesse kw/min"].mean() if "Vitesse kw/min" in df.columns else 0,
-        "Sessions": len(subset),
-        "Temps moyen (min)": subset["TEMPS en min"].mean() if "TEMPS en min" in df.columns else 0
-    }
-
-stats_A = stats_station(df_filtered, station_A)
-stats_B = stats_station(df_filtered, station_B)
-
-categories = list(stats_A.keys())
-
-fig_radar = go.Figure()
-
-fig_radar.add_trace(go.Scatterpolar(
-    r=list(stats_A.values()), theta=categories, fill='toself', name=station_A
-))
-fig_radar.add_trace(go.Scatterpolar(
-    r=list(stats_B.values()), theta=categories, fill='toself', name=station_B
-))
-
-fig_radar.update_layout(
-    polar=dict(radialaxis=dict(visible=True)),
-    title="Comparatif des performances entre deux stations"
-)
-
-st.plotly_chart(fig_radar, use_container_width=True)
-
-st.divider()
-
-# --- ÉVOLUTION MENSUELLE ---
-st.subheader("📅 Évolution mensuelle du coût")
-
-df_filtered["Date"] = pd.to_datetime(df_filtered["Date"], errors="coerce")
-df_filtered = df_filtered.dropna(subset=["Date"])
-
-if len(df_filtered) > 0:
-    df_filtered["Mois"] = df_filtered["Date"].dt.to_period("M").astype(str)
-    df_mois = df_filtered.groupby("Mois")["Cout"].sum().reset_index()
-
-    fig4 = px.line(
-        df_mois, x="Mois", y="Cout",
-        title="Coût total par mois (€)"
-    )
-    st.plotly_chart(fig4, use_container_width=True)
+# -------------------------
+# 7) Export ou affichage final (exemples)
+# -------------------------
+st.markdown("### Résumé")
+st.write({"prix_kwh_global": prix_kwh_global})

@@ -1,131 +1,142 @@
+# 1_📊_Reporting.py
+# Script Streamlit pour reporting — version robuste pour éviter KeyError / NameError
+import streamlit as st
+import pandas as pd
+import unicodedata
+import difflib
+import os
+
+st.set_page_config(page_title="Reporting", layout="wide")
+
 # -------------------------
-# Affichage professionnel : debug rétractable + graphiques
+# 1) Lecture du fichier source
 # -------------------------
-import plotly.express as px
+# Remplacez ce chemin par le vôtre ou adaptez la lecture (CSV/Excel)
+DATA_PATH = "chemin/vers/votre_fichier.csv"  # <-- modifier ici si besoin
 
-# Sidebar : contrôle d'affichage debug
-show_debug_sidebar = st.sidebar.checkbox("Afficher le debug", value=False)
-
-# Expander debug (fermé par défaut) + possibilité d'ouvrir depuis la sidebar
-with st.expander("🔧 Debug (colonnes & aperçu)", expanded=show_debug_sidebar):
+def read_data(path):
+    if not os.path.exists(path):
+        st.error(f"Fichier introuvable : {path}")
+        return pd.DataFrame()
+    # Détecter extension
+    ext = os.path.splitext(path)[1].lower()
     try:
-        st.write("Nombre de lignes :", len(df_filtered))
-        st.write("Colonnes disponibles :", df_filtered.columns.tolist())
-        st.write("Aperçu des 5 premières lignes :", df_filtered.head())
-        # Afficher la série prix si elle existe
-        if "Prix du KwH" in df_filtered.columns:
-            st.write("Aperçu colonne Prix du KwH :", df_filtered["Prix du KwH"].head(10))
-    except Exception as e:
-        st.error(f"Impossible d'afficher le debug : {e}")
-
-# Container principal pour les graphiques
-st.markdown("## Visualisations")
-charts_col1, charts_col2 = st.columns([2, 1])
-
-# 1) Graphique 1 : évolution temporelle du prix (si colonne Date disponible)
-with charts_col1:
-    if "date" in [c.lower() for c in df_filtered.columns] or "Date" in df_filtered.columns:
-        # trouver le nom exact de la colonne date (tolérance casse)
-        date_col = None
-        for c in df_filtered.columns:
-            if c.lower() == "date":
-                date_col = c
-                break
-        try:
-            df_plot = df_filtered.copy()
-            # convertir en datetime si possible
-            df_plot[date_col] = pd.to_datetime(df_plot[date_col], errors='coerce')
-            # choisir colonne prix existante
-            price_col = None
-            if "Prix du KwH" in df_plot.columns:
-                price_col = "Prix du KwH"
-            else:
-                # chercher colonne contenant 'prix' et 'kwh' approximativement
-                for c in df_plot.columns:
-                    if "prix" in c.lower() and "kwh" in c.lower():
-                        price_col = c
-                        break
-            if price_col:
-                df_plot[price_col] = pd.to_numeric(df_plot[price_col].astype(str).str.replace(',', '.'), errors='coerce')
-                df_ts = df_plot.dropna(subset=[date_col, price_col]).sort_values(date_col)
-                if not df_ts.empty:
-                    fig_ts = px.line(df_ts, x=date_col, y=price_col, title="Évolution du prix kWh dans le temps", markers=True)
-                    fig_ts.update_layout(yaxis_title="Prix (€/kWh)", xaxis_title="Date")
-                    st.plotly_chart(fig_ts, use_container_width=True)
-                else:
-                    st.info("Pas de données valides Date+Prix pour tracer l'évolution.")
-            else:
-                st.info("Aucune colonne prix détectée pour tracer l'évolution temporelle.")
-        except Exception as e:
-            st.error(f"Erreur graphique évolution temporelle : {e}")
-    else:
-        st.info("Colonne Date absente : impossible de tracer l'évolution temporelle.")
-
-# 2) Graphique 2 : histogramme des prix
-with charts_col2:
-    price_col = None
-    for c in df_filtered.columns:
-        if c.lower() in ["prix du kwh", "prix du kwh", "prix du kwh".lower()]:
-            price_col = c
-            break
-    if not price_col:
-        # fallback : chercher colonne contenant 'prix' et 'kwh'
-        for c in df_filtered.columns:
-            if "prix" in c.lower() and "kwh" in c.lower():
-                price_col = c
-                break
-
-    if price_col:
-        try:
-            s = df_filtered[price_col].astype(str).str.replace('\xa0', ' ', regex=False).str.replace('€', '', regex=False).str.replace(',', '.', regex=False).str.strip()
-            s_num = pd.to_numeric(s, errors='coerce').dropna()
-            if not s_num.empty:
-                fig_hist = px.histogram(s_num, nbins=30, title="Distribution des prix kWh", labels={"value":"Prix (€/kWh)"})
-                st.plotly_chart(fig_hist, use_container_width=True)
-            else:
-                st.info("Aucune valeur numérique valide dans la colonne prix pour l'histogramme.")
-        except Exception as e:
-            st.error(f"Erreur histogramme prix : {e}")
-    else:
-        st.info("Colonne prix introuvable pour l'histogramme.")
-
-# 3) Graphique 3 : boxplot par catégorie (si colonne catégorielle disponible)
-st.markdown("### Comparaison par catégorie")
-cat_col = None
-# Prioriser colonnes usuelles
-for candidate in ["Fournisseur", "Type", "Categorie", "Contrat", "Statut"]:
-    for c in df_filtered.columns:
-        if c.lower() == candidate.lower():
-            cat_col = c
-            break
-    if cat_col:
-        break
-
-if cat_col and price_col:
-    try:
-        df_box = df_filtered[[cat_col, price_col]].copy()
-        df_box[price_col] = pd.to_numeric(df_box[price_col].astype(str).str.replace(',', '.'), errors='coerce')
-        df_box = df_box.dropna()
-        if not df_box.empty:
-            fig_box = px.box(df_box, x=cat_col, y=price_col, points="outliers", title=f"Boxplot de {price_col} par {cat_col}")
-            st.plotly_chart(fig_box, use_container_width=True)
+        if ext in [".csv"]:
+            # Exemple pour CSV français : séparateur ; et décimale ,
+            df = pd.read_csv(path, sep=';', encoding='utf-8', decimal=',', dtype=str)
+        elif ext in [".xls", ".xlsx"]:
+            df = pd.read_excel(path, dtype=str)
         else:
-            st.info("Pas de données valides pour le boxplot.")
+            # Tentative générique
+            df = pd.read_csv(path, dtype=str)
     except Exception as e:
-        st.error(f"Erreur boxplot : {e}")
-else:
-    st.info("Colonne catégorielle ou colonne prix manquante pour le boxplot.")
+        st.error(f"Erreur lecture fichier : {e}")
+        df = pd.DataFrame()
+    # Nettoyage basique des noms de colonnes
+    df.columns = df.columns.str.strip()
+    return df
 
-# 4) Graphique 4 : counts / top fournisseurs (si cat_col présent)
-st.markdown("### Comptages")
-if cat_col:
-    try:
-        counts = df_filtered[cat_col].value_counts().reset_index()
-        counts.columns = [cat_col, "count"]
-        fig_bar = px.bar(counts.head(20), x=cat_col, y="count", title=f"Top {min(20, len(counts))} {cat_col}", text="count")
-        fig_bar.update_layout(xaxis_tickangle=-45)
-        st.plotly_chart(fig_bar, use_container_width=True)
-    except Exception as e:
-        st.error(f"Erreur bar chart : {e}")
+df = read_data(DATA_PATH)
+
+# -------------------------
+# 2) Définir df_filtered (adapter ici vos filtres)
+# -------------------------
+# Si vous avez déjà une logique de filtrage, collez-la ici.
+# Par défaut on prend tout le DataFrame lu.
+try:
+    # --- APPLIQUEZ VOS FILTRES ICI ---
+    # Exemple : df_filtered = df[df["Statut"] == "Valide"]
+    # Si vous n'avez pas de filtre, on copie tout :
+    df_filtered = df.copy()
+except Exception as e:
+    st.error(f"Erreur lors de la définition de df_filtered : {e}")
+    df_filtered = df.copy()
+
+# -------------------------
+# 3) Debug : afficher colonnes et aperçu
+# -------------------------
+st.write("=== DEBUG : colonnes et aperçu du DataFrame ===")
+try:
+    st.write("Nombre de lignes :", len(df_filtered))
+    st.write("Colonnes disponibles :", df_filtered.columns.tolist())
+    st.write("Aperçu des 5 premières lignes :", df_filtered.head())
+except Exception as e:
+    st.error(f"Impossible d'afficher df_filtered: {e}")
+
+# -------------------------
+# 4) Normalisation des noms de colonnes et recherche de la colonne prix
+# -------------------------
+def normalize_colname(name):
+    name = str(name).strip().lower()
+    name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
+    name = " ".join(name.split())
+    return name
+
+# Construire mapping original <-> normalisé
+cols_orig = df_filtered.columns.tolist()
+cols_norm = [normalize_colname(c) for c in cols_orig]
+col_map = dict(zip(cols_norm, cols_orig))
+
+# Travailler sur une copie normalisée pour éviter surprises
+df_norm = df_filtered.copy()
+df_norm.columns = cols_norm
+
+# Nom cible normalisé
+target_norm = normalize_colname("Prix du KwH")
+
+# Trouver la meilleure correspondance
+col_to_use = None
+if target_norm in df_norm.columns:
+    col_to_use = target_norm
 else:
-    st.info("Aucune colonne catégorielle détectée pour les comptages.")
+    matches = difflib.get_close_matches(target_norm, df_norm.columns, n=3, cutoff=0.5)
+    st.write("Nom cible normalisé :", target_norm)
+    st.write("Correspondances proches trouvées :", matches)
+    if matches:
+        col_to_use = matches[0]
+        st.info(f"Utilisation de la colonne approchante : '{col_to_use}' (nom original: '{col_map.get(col_to_use)}')")
+    else:
+        st.error("Colonne 'Prix du KwH' introuvable après normalisation. Vérifiez l'import ou le pré-traitement.")
+
+# -------------------------
+# 5) Conversion en numérique et calcul de la moyenne
+# -------------------------
+prix_kwh_global = None
+if col_to_use:
+    try:
+        # Nettoyage des valeurs : remplacer virgule décimale, retirer symbole euro, espaces
+        s = df_norm[col_to_use].astype(str).str.replace('\xa0', ' ', regex=False)
+        s = s.str.replace('€', '', regex=False)
+        s = s.str.replace(',', '.', regex=False)
+        s = s.str.strip()
+        # Conversion forcée en numérique
+        s_num = pd.to_numeric(s, errors='coerce')
+        valid_count = s_num.notna().sum()
+        st.write(f"Nombre de valeurs numériques valides dans la colonne choisie : {valid_count}")
+        if valid_count == 0:
+            st.warning("Aucune valeur numérique valide trouvée dans la colonne prix. Vérifiez le format des données.")
+        prix_kwh_global = s_num.mean()
+        st.write("**Prix kWh moyen :**", prix_kwh_global)
+    except Exception as e:
+        st.error(f"Erreur lors du calcul du prix kWh : {e}")
+else:
+    st.warning("Calcul du prix kWh ignoré car aucune colonne correspondante n'a été trouvée.")
+
+# -------------------------
+# 6) Option : renommer définitivement la colonne dans df_filtered (si vous le souhaitez)
+# -------------------------
+# Exemple : si vous voulez standardiser le nom dans le DataFrame original
+if col_to_use:
+    original_name = col_map.get(col_to_use, col_to_use)
+    # Renommer dans df_filtered original
+    try:
+        df_filtered = df_filtered.rename(columns={original_name: "Prix du KwH"})
+        st.write("Colonne renommée en 'Prix du KwH' dans df_filtered.")
+    except Exception as e:
+        st.warning(f"Impossible de renommer la colonne : {e}")
+
+# -------------------------
+# 7) Export ou affichage final (exemples)
+# -------------------------
+st.markdown("### Résumé")
+st.write({"prix_kwh_global": prix_kwh_global})

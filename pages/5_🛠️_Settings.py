@@ -68,16 +68,24 @@ def _normalize_settings(s):
 settings = _normalize_settings(settings)
 
 # -----------------------
+# Containers pour affichages dynamiques
+# -----------------------
+_regions_table_container = st.empty()
+_lieux_list_container = st.empty()
+_types_list_container = st.empty()
+_message_container = st.empty()
+
+# -----------------------
 # Helpers locaux (sauvegarde sûre + rerun via session_state)
 # -----------------------
 def persist_and_notify(settings_obj, message="Paramètres sauvegardés"):
     try:
         save_settings(settings_obj)
-        st.success(message)
+        _message_container.success(message)
         # demander un rerun sûr via session_state (fallback si experimental_rerun absent)
         st.session_state["_need_rerun"] = True
     except Exception as e:
-        st.error(f"Erreur lors de la sauvegarde : {e}")
+        _message_container.error(f"Erreur lors de la sauvegarde : {e}")
 
 
 def region_display_rows(settings_obj):
@@ -109,6 +117,41 @@ def region_display_rows(settings_obj):
     return pd.DataFrame(rows)
 
 
+def render_regions_table():
+    df_regions = region_display_rows(settings)
+    _regions_table_container.dataframe(df_regions, use_container_width=True)
+
+
+def render_types_list():
+    _types_list_container.empty()
+    types_list = settings.get("types_borne", [])
+    if types_list:
+        with _types_list_container.container():
+            st.write("Types actuels")
+            for i, t in enumerate(types_list):
+                st.write(f"- **{t}**")
+    else:
+        _types_list_container.info("Aucun type de borne défini.")
+
+
+def render_lieux_list(sel_region):
+    _lieux_list_container.empty()
+    if not sel_region:
+        return
+    lieux = settings["regions"].get(sel_region, {}).get("lieux", [])
+    if lieux:
+        with _lieux_list_container.container():
+            st.write("Lieux actuels")
+            for l in lieux:
+                st.write(f"- {l}")
+    else:
+        _lieux_list_container.info("Aucun lieu pour cette région.")
+
+
+# Initial render
+render_regions_table()
+render_types_list()
+
 # -----------------------
 # Navigation (sous-menu)
 # -----------------------
@@ -120,8 +163,9 @@ section = st.sidebar.radio("Choisir la liste à modifier", ("Régions", "Lieux (
 # -----------------------
 def section_regions(settings):
     st.header("Régions")
-    df_regions = region_display_rows(settings)
-    st.dataframe(df_regions, use_container_width=True)
+
+    # table already rendered in container; show a small note
+    st.markdown("Tableau des régions (mise à jour automatique)")
 
     st.markdown("### Ajouter une nouvelle région")
     with st.form("form_add_region", clear_on_submit=True):
@@ -137,6 +181,8 @@ def section_regions(settings):
                     st.warning("Cette région existe déjà.")
                 else:
                     settings.setdefault("regions", {})[key] = {"acronyme": new_acro.strip(), "lieux": []}
+                    # mise à jour immédiate
+                    render_regions_table()
                     persist_and_notify(settings, f"Région '{key}' ajoutée.")
                     # persist_and_notify met le flag pour rerun
 
@@ -168,6 +214,8 @@ def section_regions(settings):
                         settings["regions"][new_name] = settings["regions"].pop(sel_region)
                         sel_region = new_name
                 settings["regions"][sel_region]["acronyme"] = new_acro.strip()
+                # mise à jour immédiate
+                render_regions_table()
                 persist_and_notify(settings, "Région mise à jour.")
                 # persist_and_notify met le flag pour rerun
 
@@ -176,6 +224,9 @@ def section_regions(settings):
         confirm = st.checkbox(f"Confirmer la suppression de la région '{sel_region}'")
         if confirm:
             settings["regions"].pop(sel_region, None)
+            # mise à jour immédiate
+            render_regions_table()
+            _lieux_list_container.empty()
             persist_and_notify(settings, f"Région '{sel_region}' supprimée.")
             # persist_and_notify met le flag pour rerun
 
@@ -190,18 +241,14 @@ def section_lieux(settings):
         st.info("Aucune région définie. Créez d'abord une région.")
         return
 
-    sel_region = st.selectbox("Choisir une région", [""] + regions_list)
+    sel_region = st.selectbox("Choisir une région", [""] + regions_list, key="select_lieux_region")
     if not sel_region:
+        _lieux_list_container.empty()
         return
 
     st.subheader(f"Lieux pour {sel_region}")
-    lieux = settings["regions"][sel_region].get("lieux", [])
-    if lieux:
-        st.write("Lieux actuels")
-        for l in lieux:
-            st.write(f"- {l}")
-    else:
-        st.info("Aucun lieu pour cette région.")
+    # affichage via container
+    render_lieux_list(sel_region)
 
     st.markdown("### Ajouter un lieu")
     with st.form(f"form_add_lieu_{sel_region}", clear_on_submit=True):
@@ -216,15 +263,22 @@ def section_lieux(settings):
                     st.warning("Ce lieu existe déjà pour la région.")
                 else:
                     settings["regions"][sel_region]["lieux"].append(nl)
+                    # mise à jour immédiate
+                    render_regions_table()
+                    render_lieux_list(sel_region)
                     persist_and_notify(settings, f"Lieu '{nl}' ajouté à {sel_region}.")
                     # persist_and_notify met le flag pour rerun
 
     st.markdown("### Supprimer des lieux")
+    lieux = settings["regions"][sel_region].get("lieux", [])
     if lieux:
-        to_remove = st.multiselect("Sélectionner les lieux à supprimer", options=lieux)
+        to_remove = st.multiselect("Sélectionner les lieux à supprimer", options=lieux, key=f"multisel_{sel_region}")
         if st.button("Supprimer les lieux sélectionnés"):
             if to_remove:
                 settings["regions"][sel_region]["lieux"] = [l for l in lieux if l not in to_remove]
+                # mise à jour immédiate
+                render_regions_table()
+                render_lieux_list(sel_region)
                 persist_and_notify(settings, f"{len(to_remove)} lieu(x) supprimé(s).")
                 # persist_and_notify met le flag pour rerun
             else:
@@ -236,13 +290,7 @@ def section_lieux(settings):
 # -----------------------
 def section_types(settings):
     st.header("Types de borne")
-    types_list = settings.get("types_borne", [])
-    if not types_list:
-        st.info("Aucun type de borne défini.")
-    else:
-        st.write("Types actuels")
-        for i, t in enumerate(types_list):
-            st.write(f"- **{t}**")
+    render_types_list()
 
     st.markdown("### Ajouter un type de borne")
     with st.form("form_add_type", clear_on_submit=True):
@@ -257,15 +305,19 @@ def section_types(settings):
                     st.warning("Ce type existe déjà.")
                 else:
                     settings.setdefault("types_borne", []).append(nt)
+                    # mise à jour immédiate
+                    render_types_list()
                     persist_and_notify(settings, f"Type '{nt}' ajouté.")
                     # persist_and_notify met le flag pour rerun
 
     st.markdown("### Supprimer un type de borne")
     if settings.get("types_borne"):
-        rem = st.multiselect("Sélectionner les types à supprimer", options=settings["types_borne"])
+        rem = st.multiselect("Sélectionner les types à supprimer", options=settings["types_borne"], key="multisel_types")
         if st.button("Supprimer les types sélectionnés"):
             if rem:
                 settings["types_borne"] = [t for t in settings["types_borne"] if t not in rem]
+                # mise à jour immédiate
+                render_types_list()
                 persist_and_notify(settings, f"{len(rem)} type(s) supprimé(s).")
                 # persist_and_notify met le flag pour rerun
             else:
@@ -288,9 +340,13 @@ def section_import_export(settings):
                     st.error("Le fichier JSON doit contenir un objet racine.")
                 else:
                     loaded = _normalize_settings(loaded)
-                    # remplacer settings global
+                    # remplacer settings global proprement
                     settings.clear()
                     settings.update(loaded)
+                    # mise à jour immédiate
+                    render_regions_table()
+                    render_types_list()
+                    _lieux_list_container.empty()
                     persist_and_notify(settings, "Paramètres importés depuis JSON.")
                     # persist_and_notify met le flag pour rerun
             except Exception as e:

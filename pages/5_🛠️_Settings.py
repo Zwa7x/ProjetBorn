@@ -1,80 +1,200 @@
+# pages/5_🛠️_Settings.py
 import streamlit as st
-from utils.settings_loader import load_settings, save_settings
+import pandas as pd
+from utils import load_settings, save_settings
 
-st.set_page_config(page_title="⚙️ Settings", page_icon="⚙️")
+st.set_page_config(page_title="Settings", layout="wide")
 
-# Chargement des paramètres
-settings = load_settings()
+st.title("🛠️ Paramètres de l'application")
 
-# --- MENU LATERAL ---
-st.sidebar.title("⚙️ Paramètres")
-section = st.sidebar.radio(
-    "Navigation",
-    ["📍 Régions", "🏁 Lieux", "⚡ Types de bornes"]
-)
+# Chargement des settings
+try:
+    settings = load_settings()
+    if not isinstance(settings, dict):
+        raise ValueError("Format de settings invalide")
+except Exception as e:
+    st.error("Impossible de charger les paramètres. Réinitialisation aux valeurs par défaut.")
+    settings = {"regions": {}, "types_borne": []}
 
-st.title("⚙️ Paramètres de l'application")
+# Helpers locaux
+def persist_and_notify(settings_obj, message="Paramètres sauvegardés"):
+    try:
+        save_settings(settings_obj)
+        st.success(message)
+    except Exception as e:
+        st.error(f"Erreur lors de la sauvegarde : {e}")
 
-# --- SECTION REGIONS ---
-if section == "📍 Régions":
-    st.subheader("📍 Gestion des régions")
+def region_display_rows(settings_obj):
+    """Retourne un DataFrame pour affichage synthétique des régions."""
+    rows = []
+    for region, meta in settings_obj.get("regions", {}).items():
+        acr = meta.get("acronyme", "")
+        lieux = meta.get("lieux", [])
+        rows.append({"Région": region, "Acronyme": acr, "Nombre de lieux": len(lieux), "Lieux (ex.)": ", ".join(lieux[:3])})
+    if not rows:
+        return pd.DataFrame(columns=["Région", "Acronyme", "Nombre de lieux", "Lieux (ex.)"])
+    return pd.DataFrame(rows)
 
-    regions = list(settings["regions"].keys())
+# Layout : deux colonnes
+col_left, col_right = st.columns([2, 1])
 
-    st.write("Liste des régions actuelles :")
-    st.dataframe({"Régions": regions})
+with col_left:
+    st.header("Régions et lieux")
 
-    # Ajout d'une région
-    new_region = st.text_input("Ajouter une nouvelle région")
-    if st.button("➕ Ajouter la région"):
-        if new_region and new_region not in settings["regions"]:
-            settings["regions"][new_region] = []
-            save_settings(settings)
-            st.success(f"Région '{new_region}' ajoutée.")
-            st.experimental_rerun()
-        else:
-            st.error("Cette région existe déjà ou est vide.")
+    # Affichage synthétique
+    df_regions = region_display_rows(settings)
+    st.dataframe(df_regions, use_container_width=True)
 
-# --- SECTION LIEUX ---
-elif section == "🏁 Lieux":
-    st.subheader("🏁 Gestion des lieux par région")
+    st.markdown("### Ajouter une nouvelle région")
+    with st.form("form_add_region", clear_on_submit=True):
+        new_region = st.text_input("Nom de la région", "")
+        new_acro = st.text_input("Acronyme (optionnel)", "")
+        submit_region = st.form_submit_button("Ajouter la région")
+        if submit_region:
+            if not new_region.strip():
+                st.warning("Le nom de la région ne peut pas être vide.")
+            else:
+                key = new_region.strip()
+                if key in settings.get("regions", {}):
+                    st.warning("Cette région existe déjà.")
+                else:
+                    settings.setdefault("regions", {})[key] = {"acronyme": new_acro.strip(), "lieux": []}
+                    persist_and_notify(settings, f"Région '{key}' ajoutée.")
+                    st.experimental_rerun()
 
-    regions = list(settings["regions"].keys())
-    if not regions:
-        st.warning("Aucune région disponible. Ajoutez d'abord une région.")
+    st.markdown("### Gérer une région existante")
+    regions_list = list(settings.get("regions", {}).keys())
+    if not regions_list:
+        st.info("Aucune région définie pour le moment.")
     else:
-        region_choice = st.selectbox("Sélectionnez une région", regions)
-        lieux = settings["regions"][region_choice]
+        sel_region = st.selectbox("Sélectionner une région", [""] + regions_list)
+        if sel_region:
+            meta = settings["regions"].get(sel_region, {"acronyme": "", "lieux": []})
+            st.subheader(f"Édition : {sel_region}")
+            col_a, col_b = st.columns([2, 1])
+            with col_a:
+                new_name = st.text_input("Renommer la région", sel_region)
+                new_acro = st.text_input("Acronyme", meta.get("acronyme", ""))
+            with col_b:
+                if st.button("Renommer / Mettre à jour"):
+                    new_name = new_name.strip()
+                    if not new_name:
+                        st.warning("Le nom ne peut pas être vide.")
+                    else:
+                        # rename logic
+                        if new_name != sel_region:
+                            if new_name in settings["regions"]:
+                                st.warning("Une région avec ce nom existe déjà.")
+                            else:
+                                settings["regions"][new_name] = settings["regions"].pop(sel_region)
+                                sel_region = new_name
+                        settings["regions"][sel_region]["acronyme"] = new_acro.strip()
+                        persist_and_notify(settings, "Région mise à jour.")
+                        st.experimental_rerun()
 
-        st.write(f"Lieux actuels pour **{region_choice}** :")
-        st.dataframe({"Ordre": list(range(1, len(lieux)+1)), "Lieux": lieux})
+            st.markdown("#### Lieux de la région")
+            lieux = settings["regions"][sel_region].get("lieux", [])
+            if not lieux:
+                st.info("Aucun lieu pour cette région.")
+            else:
+                # affichage et suppression multiple
+                to_remove = st.multiselect("Supprimer des lieux (sélection multiple)", options=lieux)
+                if st.button("Supprimer les lieux sélectionnés"):
+                    if to_remove:
+                        settings["regions"][sel_region]["lieux"] = [l for l in lieux if l not in to_remove]
+                        persist_and_notify(settings, f"{len(to_remove)} lieu(x) supprimé(s).")
+                        st.experimental_rerun()
+                    else:
+                        st.warning("Aucun lieu sélectionné.")
 
-        # Ajout d'un lieu
-        new_lieu = st.text_input("Ajouter un nouveau lieu")
-        if st.button("➕ Ajouter le lieu"):
-            if new_lieu and new_lieu not in lieux:
-                settings["regions"][region_choice].append(new_lieu)
-                save_settings(settings)
-                st.success(f"Lieu '{new_lieu}' ajouté.")
+            st.markdown("Ajouter un lieu")
+            with st.form("form_add_lieu", clear_on_submit=True):
+                new_lieu = st.text_input("Nom du lieu", "")
+                submit_lieu = st.form_submit_button("Ajouter le lieu")
+                if submit_lieu:
+                    nl = new_lieu.strip()
+                    if not nl:
+                        st.warning("Le nom du lieu ne peut pas être vide.")
+                    else:
+                        if nl in settings["regions"][sel_region]["lieux"]:
+                            st.warning("Ce lieu existe déjà pour la région.")
+                        else:
+                            settings["regions"][sel_region]["lieux"].append(nl)
+                            persist_and_notify(settings, f"Lieu '{nl}' ajouté à {sel_region}.")
+                            st.experimental_rerun()
+
+            st.markdown("Supprimer la région")
+            if st.button("Supprimer cette région", key=f"del_region_{sel_region}"):
+                # suppression confirmée via modal simple
+                confirm = st.checkbox(f"Confirmer la suppression de la région '{sel_region}'")
+                if confirm:
+                    settings["regions"].pop(sel_region, None)
+                    persist_and_notify(settings, f"Région '{sel_region}' supprimée.")
+                    st.experimental_rerun()
+
+with col_right:
+    st.header("Types de borne")
+    types_list = settings.get("types_borne", [])
+    if not types_list:
+        st.info("Aucun type de borne défini.")
+    else:
+        st.write("Types actuels")
+        for i, t in enumerate(types_list):
+            st.write(f"- **{t}**")
+
+    st.markdown("### Ajouter un type de borne")
+    with st.form("form_add_type", clear_on_submit=True):
+        new_type = st.text_input("Nom du type (ex: AC 22kW)", "")
+        submit_type = st.form_submit_button("Ajouter le type")
+        if submit_type:
+            nt = new_type.strip()
+            if not nt:
+                st.warning("Le nom du type ne peut pas être vide.")
+            else:
+                if nt in settings.get("types_borne", []):
+                    st.warning("Ce type existe déjà.")
+                else:
+                    settings.setdefault("types_borne", []).append(nt)
+                    persist_and_notify(settings, f"Type '{nt}' ajouté.")
+                    st.experimental_rerun()
+
+    st.markdown("### Supprimer un type de borne")
+    if settings.get("types_borne"):
+        rem = st.multiselect("Sélectionner les types à supprimer", options=settings["types_borne"])
+        if st.button("Supprimer les types sélectionnés"):
+            if rem:
+                settings["types_borne"] = [t for t in settings["types_borne"] if t not in rem]
+                persist_and_notify(settings, f"{len(rem)} type(s) supprimé(s).")
                 st.experimental_rerun()
             else:
-                st.error("Ce lieu existe déjà ou est vide.")
+                st.warning("Aucun type sélectionné.")
 
-# --- SECTION TYPES DE BORNE ---
-elif section == "⚡ Types de bornes":
-    st.subheader("⚡ Gestion des types de bornes")
+st.markdown("---")
+st.header("Export / Import rapide")
 
-    types_borne = settings["types_borne"]
-    st.write("Types de bornes actuels :")
-    st.dataframe({"Types": types_borne})
+col_imp, col_exp = st.columns(2)
+with col_imp:
+    st.subheader("Importer settings depuis JSON")
+    uploaded = st.file_uploader("Charger un fichier JSON", type=["json"])
+    if uploaded is not None:
+        try:
+            import json
+            loaded = json.load(uploaded)
+            if not isinstance(loaded, dict):
+                st.error("Le fichier JSON doit contenir un objet racine.")
+            else:
+                settings = loaded
+                persist_and_notify(settings, "Paramètres importés depuis JSON.")
+                st.experimental_rerun()
+        except Exception as e:
+            st.error(f"Erreur lors de l'import : {e}")
 
-    # Ajout d'un type
-    new_type = st.text_input("Ajouter un type de borne")
-    if st.button("➕ Ajouter le type"):
-        if new_type and new_type not in types_borne:
-            settings["types_borne"].append(new_type)
-            save_settings(settings)
-            st.success(f"Type '{new_type}' ajouté.")
-            st.experimental_rerun()
-        else:
-            st.error("Ce type existe déjà ou est vide.")
+with col_exp:
+    st.subheader("Télécharger les settings actuels")
+    import json, io
+    buf = io.StringIO()
+    json.dump(settings, buf, ensure_ascii=False, indent=2)
+    st.download_button("Télécharger settings.json", data=buf.getvalue(), file_name="settings.json", mime="application/json")
+
+st.markdown("---")
+st.caption("Les modifications sont persistées dans data/settings.json via utils.save_settings().")

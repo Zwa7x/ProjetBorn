@@ -9,7 +9,7 @@ st.set_page_config(page_title="Settings", layout="wide")
 st.title("🛠️ Paramètres de l'application")
 
 # -----------------------
-# CHANGES: Chargement et normalisation des settings
+# Chargement et normalisation des settings
 # -----------------------
 try:
     settings = load_settings()
@@ -67,14 +67,15 @@ def _normalize_settings(s):
 
 settings = _normalize_settings(settings)
 
-
 # -----------------------
-# CHANGES: Helpers locaux
+# Helpers locaux (sauvegarde sûre + rerun via session_state)
 # -----------------------
 def persist_and_notify(settings_obj, message="Paramètres sauvegardés"):
     try:
         save_settings(settings_obj)
         st.success(message)
+        # demander un rerun sûr via session_state (fallback si experimental_rerun absent)
+        st.session_state["_need_rerun"] = True
     except Exception as e:
         st.error(f"Erreur lors de la sauvegarde : {e}")
 
@@ -137,7 +138,7 @@ def section_regions(settings):
                 else:
                     settings.setdefault("regions", {})[key] = {"acronyme": new_acro.strip(), "lieux": []}
                     persist_and_notify(settings, f"Région '{key}' ajoutée.")
-                    st.experimental_rerun()
+                    # persist_and_notify met le flag pour rerun
 
     st.markdown("### Gérer une région existante")
     regions_list = list(settings.get("regions", {}).keys())
@@ -168,7 +169,7 @@ def section_regions(settings):
                         sel_region = new_name
                 settings["regions"][sel_region]["acronyme"] = new_acro.strip()
                 persist_and_notify(settings, "Région mise à jour.")
-                st.experimental_rerun()
+                # persist_and_notify met le flag pour rerun
 
     st.markdown("#### Supprimer la région")
     if st.button("Supprimer cette région", key=f"del_region_{sel_region}"):
@@ -176,7 +177,7 @@ def section_regions(settings):
         if confirm:
             settings["regions"].pop(sel_region, None)
             persist_and_notify(settings, f"Région '{sel_region}' supprimée.")
-            st.experimental_rerun()
+            # persist_and_notify met le flag pour rerun
 
 
 # -----------------------
@@ -216,7 +217,7 @@ def section_lieux(settings):
                 else:
                     settings["regions"][sel_region]["lieux"].append(nl)
                     persist_and_notify(settings, f"Lieu '{nl}' ajouté à {sel_region}.")
-                    st.experimental_rerun()
+                    # persist_and_notify met le flag pour rerun
 
     st.markdown("### Supprimer des lieux")
     if lieux:
@@ -225,7 +226,7 @@ def section_lieux(settings):
             if to_remove:
                 settings["regions"][sel_region]["lieux"] = [l for l in lieux if l not in to_remove]
                 persist_and_notify(settings, f"{len(to_remove)} lieu(x) supprimé(s).")
-                st.experimental_rerun()
+                # persist_and_notify met le flag pour rerun
             else:
                 st.warning("Aucun lieu sélectionné.")
 
@@ -257,7 +258,7 @@ def section_types(settings):
                 else:
                     settings.setdefault("types_borne", []).append(nt)
                     persist_and_notify(settings, f"Type '{nt}' ajouté.")
-                    st.experimental_rerun()
+                    # persist_and_notify met le flag pour rerun
 
     st.markdown("### Supprimer un type de borne")
     if settings.get("types_borne"):
@@ -266,7 +267,7 @@ def section_types(settings):
             if rem:
                 settings["types_borne"] = [t for t in settings["types_borne"] if t not in rem]
                 persist_and_notify(settings, f"{len(rem)} type(s) supprimé(s).")
-                st.experimental_rerun()
+                # persist_and_notify met le flag pour rerun
             else:
                 st.warning("Aucun type sélectionné.")
 
@@ -287,9 +288,11 @@ def section_import_export(settings):
                     st.error("Le fichier JSON doit contenir un objet racine.")
                 else:
                     loaded = _normalize_settings(loaded)
-                    settings = loaded
+                    # remplacer settings global
+                    settings.clear()
+                    settings.update(loaded)
                     persist_and_notify(settings, "Paramètres importés depuis JSON.")
-                    st.experimental_rerun()
+                    # persist_and_notify met le flag pour rerun
             except Exception as e:
                 st.error(f"Erreur lors de l'import : {e}")
 
@@ -314,3 +317,16 @@ elif section == "Types de borne":
     section_types(settings)
 elif section == "Import / Export":
     section_import_export(settings)
+
+# -----------------------
+# Exécute le rerun si demandé (sécurisé)
+# -----------------------
+if st.session_state.get("_need_rerun", False):
+    st.session_state["_need_rerun"] = False
+    if hasattr(st, "experimental_rerun"):
+        try:
+            st.experimental_rerun()
+        except Exception:
+            st.session_state["_refresh_toggle"] = not st.session_state.get("_refresh_toggle", False)
+    else:
+        st.session_state["_refresh_toggle"] = not st.session_state.get("_refresh_toggle", False)

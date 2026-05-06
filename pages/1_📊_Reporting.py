@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import pandas as pd
 import unicodedata
 import difflib
-from utils import load_data
+from utils import load_data, save_data
 import traceback
 
 st.set_page_config(page_title="Reporting", layout="wide")

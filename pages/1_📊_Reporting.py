@@ -67,13 +67,22 @@ try:
     df = load_data()
     if df is None:
         df = pd.DataFrame()
-except Exception as e:
+except Exception:
     st.error("Erreur lors du chargement des données via load_data(). Voir le détail ci‑dessous.")
     st.text(traceback.format_exc())
     df = pd.DataFrame()
 
 if not df.empty:
     df.columns = df.columns.str.strip()
+
+# Détecter et convertir colonne date si présente (précoce)
+date_col_candidates = [c for c in df.columns if normalize_colname(c) in ("date", "dateheure", "timestamp")]
+date_col_detected = date_col_candidates[0] if date_col_candidates else ("Date" if "Date" in df.columns else None)
+if date_col_detected and date_col_detected in df.columns:
+    try:
+        df[date_col_detected] = pd.to_datetime(df[date_col_detected], errors='coerce')
+    except Exception:
+        pass
 
 # -------------------------
 # Sidebar : filtres (REGION / LIEUX / Dates / options)
@@ -92,8 +101,7 @@ lieux = df_temp["LIEUX"].dropna().unique().tolist() if "LIEUX" in df_temp.column
 lieu_filter = st.sidebar.selectbox("Lieu", ["Tous"] + list(lieux)) if lieux else st.sidebar.selectbox("Lieu", ["Tous"])
 
 # --- Filtre date avancé ---
-date_col_candidates = [c for c in df.columns if normalize_colname(c) in ("date", "dateheure", "timestamp")]
-date_col = date_col_candidates[0] if date_col_candidates else ("Date" if "Date" in df.columns else None)
+date_col = date_col_detected
 
 st.sidebar.markdown("### Période")
 period_mode = st.sidebar.radio("Mode période", ("Période personnalisée", "Année glissante (12 mois)", "Année entière"), index=0)
@@ -144,6 +152,10 @@ st.sidebar.markdown("### Options graphiques")
 group_method = st.sidebar.selectbox("Regrouper petites stations", ("Regrouper celles à 1 session", "Top N stations (autres → Autres)"), index=0)
 top_n = st.sidebar.slider("Top N (si sélection Top N)", min_value=5, max_value=50, value=10, step=1)
 
+# Afficher counts avant/après filtres dans la sidebar
+st.sidebar.markdown("### Taille des données")
+total_rows = len(df) if df is not None else 0
+
 # Appliquer filtres Région / LIEUX
 df_filtered = df_temp.copy()
 if lieu_filter != "Tous" and "LIEUX" in df_filtered.columns:
@@ -155,7 +167,14 @@ if date_range and date_col and date_col in df_filtered.columns and isinstance(da
         start, end = date_range
         df_filtered = df_filtered[(pd.to_datetime(df_filtered[date_col], errors='coerce') >= pd.to_datetime(start)) & (pd.to_datetime(df_filtered[date_col], errors='coerce') <= pd.to_datetime(end))]
     except Exception:
-        st.warning("Le filtre date n'a pas pu être appliqué (format de date inattendu). Voir debug pour plus d'infos.")
+        st.sidebar.warning("Le filtre date n'a pas pu être appliqué (format de date inattendu). Voir debug pour plus d'infos.")
+
+filtered_rows = len(df_filtered)
+st.sidebar.write(f"Total lignes source : **{total_rows}**")
+st.sidebar.write(f"Lignes après filtres : **{filtered_rows}**")
+if total_rows > 0:
+    pct = (filtered_rows / total_rows) * 100
+    st.sidebar.write(f"Filtrage appliqué : **{pct:.1f}%** des lignes restantes")
 
 st.divider()
 
@@ -168,8 +187,10 @@ with st.expander("🔧 Debug colonnes et aperçu", expanded=show_debug_sidebar):
         st.write("Nombre de lignes :", len(df_filtered))
         st.write("Colonnes disponibles :", df_filtered.columns.tolist())
         st.write("Aperçu des 5 premières lignes :", df_filtered.head())
-    except Exception as e:
-        st.error(f"Impossible d'afficher df_filtered: {e}")
+        st.write("Types de colonnes :")
+        st.write(df_filtered.dtypes)
+    except Exception:
+        st.error("Impossible d'afficher df_filtered:")
         st.text(traceback.format_exc())
 
 # -------------------------
@@ -286,94 +307,93 @@ col3.markdown(card_small("Nombre de sessions", f"{nb_sessions}"), unsafe_allow_h
 st.divider()
 
 # -------------------------
-# Top 10 moins chères / plus chères / plus rapides
+# Top N moins chères / plus chères / plus rapides (utilise top_n)
 # -------------------------
-st.subheader("💚 Top 10 des stations les moins chères (€/kWh)")
+st.subheader(f"💚 Top {top_n} des stations les moins chères (€/kWh)")
 if price_col and price_col in df_filtered.columns and "LIEUX" in df_filtered.columns:
     try:
         prix_kwh_moyen = (
             df_filtered.groupby("LIEUX")[price_col]
             .apply(lambda s: clean_numeric_series(s).mean())
             .sort_values()
-            .head(10)
+            .head(top_n)
             .reset_index()
             .iloc[::-1]
         )
         if not prix_kwh_moyen.empty:
-            fig_low = px.bar(prix_kwh_moyen, x=price_col, y="LIEUX", orientation="h", title="Top 10 des stations les moins chères (€/kWh)")
+            fig_low = px.bar(prix_kwh_moyen, x=price_col, y="LIEUX", orientation="h", title=f"Top {top_n} des stations les moins chères (€/kWh)")
             fig_low.update_traces(texttemplate='%{x:.3f}', textposition='outside')
             st.plotly_chart(fig_low, use_container_width=True)
         else:
-            st.info("Pas assez de données pour le top 10 moins chères.")
-    except Exception as e:
+            st.info("Pas assez de données pour le top moins chères.")
+    except Exception:
         st.error("Erreur génération top moins chères :")
         st.text(traceback.format_exc())
 else:
-    st.info("Colonne prix ou LIEUX manquante pour le top 10 moins chères.")
+    st.info("Colonne prix ou LIEUX manquante pour le top moins chères.")
 
-st.subheader("❤️ Top 10 des stations les plus chères (€/kWh)")
+st.subheader(f"❤️ Top {top_n} des stations les plus chères (€/kWh)")
 if price_col and price_col in df_filtered.columns and "LIEUX" in df_filtered.columns:
     try:
         prix_kwh_moyen_high = (
             df_filtered.groupby("LIEUX")[price_col]
             .apply(lambda s: clean_numeric_series(s).mean())
             .sort_values(ascending=False)
-            .head(10)
+            .head(top_n)
             .reset_index()
             .iloc[::-1]
         )
         if not prix_kwh_moyen_high.empty:
-            fig_high = px.bar(prix_kwh_moyen_high, x=price_col, y="LIEUX", orientation="h", title="Top 10 des stations les plus chères (€/kWh)")
+            fig_high = px.bar(prix_kwh_moyen_high, x=price_col, y="LIEUX", orientation="h", title=f"Top {top_n} des stations les plus chères (€/kWh)")
             fig_high.update_traces(texttemplate='%{x:.3f}', textposition='outside')
             st.plotly_chart(fig_high, use_container_width=True)
         else:
-            st.info("Pas assez de données pour le top 10 plus chères.")
-    except Exception as e:
+            st.info("Pas assez de données pour le top plus chères.")
+    except Exception:
         st.error("Erreur génération top plus chères :")
         st.text(traceback.format_exc())
 else:
-    st.info("Colonne prix ou LIEUX manquante pour le top 10 plus chères.")
+    st.info("Colonne prix ou LIEUX manquante pour le top plus chères.")
 
 st.divider()
 
-st.subheader("⚡ Top 10 des stations les plus rapides (kw/min)")
+st.subheader(f"⚡ Top {top_n} des stations les plus rapides (kw/min)")
 if "Vitesse kw/min" in df_filtered.columns and "LIEUX" in df_filtered.columns:
     try:
         vitesse_moyenne_full = (
             df_filtered.groupby("LIEUX")["Vitesse kw/min"]
             .apply(lambda s: pd.to_numeric(s, errors='coerce').mean())
             .sort_values(ascending=False)
-            .head(10)
+            .head(top_n)
             .reset_index()
             .iloc[::-1]
         )
         if not vitesse_moyenne_full.empty:
-            fig_fast = px.bar(vitesse_moyenne_full, x="Vitesse kw/min", y="LIEUX", orientation="h", title="Top 10 des stations les plus rapides (kw/min)")
+            fig_fast = px.bar(vitesse_moyenne_full, x="Vitesse kw/min", y="LIEUX", orientation="h", title=f"Top {top_n} des stations les plus rapides (kw/min)")
             fig_fast.update_traces(texttemplate='%{x:.2f}', textposition='outside')
             st.plotly_chart(fig_fast, use_container_width=True)
         else:
-            st.info("Pas assez de données pour le top 10 des plus rapides.")
-    except Exception as e:
+            st.info("Pas assez de données pour le top des plus rapides.")
+    except Exception:
         st.error("Erreur génération top rapides :")
         st.text(traceback.format_exc())
 else:
-    st.info("Colonne 'Vitesse kw/min' ou 'LIEUX' manquante pour le top 10 rapides.")
+    st.info("Colonne 'Vitesse kw/min' ou 'LIEUX' manquante pour le top rapides.")
 
 st.divider()
 
 # -------------------------
-# Donut : répartition du nombre de sessions par station (avec regroupement Autres)
+# Donut : répartition du nombre de sessions par station (avec regroupement Autres et tableau Top N)
 # -------------------------
 st.subheader("🧁 Répartition du nombre de sessions par station")
 if "LIEUX" in df_filtered.columns:
     try:
         sessions = df_filtered["LIEUX"].value_counts()
         if not sessions.empty:
-            # Construire DataFrame propre sans ambiguïté de noms
             sessions_df = sessions.reset_index()
-            sessions_df.columns = ["LIEUX", "count"]  # nommage explicite et unique
+            sessions_df.columns = ["LIEUX", "count"]
 
-            # Méthode de regroupement
+            # Méthode de regroupement pour le donut
             if group_method == "Regrouper celles à 1 session":
                 main_df = sessions_df[sessions_df["count"] != 1].copy()
                 others_count = int(sessions_df[sessions_df["count"] == 1]["count"].sum())
@@ -388,25 +408,26 @@ if "LIEUX" in df_filtered.columns:
             else:
                 pie_df = main_df
 
-            # Tri pour affichage (optionnel)
             pie_df = pie_df.sort_values("count", ascending=False)
 
-            # Pie chart
+            # Badge indiquant combien sont regroupés en "Autres"
+            if others_count > 0:
+                st.markdown(f"**Stations regroupées en 'Autres' :** `{others_count}`", unsafe_allow_html=True)
+
             fig_sessions = px.pie(pie_df, names="LIEUX", values="count", hole=0.5, title="Répartition des sessions par station")
             fig_sessions.update_traces(textinfo='percent+value', textposition='inside')
             st.plotly_chart(fig_sessions, use_container_width=True)
 
-            # Détail transparent (top 50) — utilise sessions_df (noms uniques)
-            with st.expander("Voir le détail des stations (top 50)"):
-                st.dataframe(sessions_df.head(50))
+            # Détail transparent : afficher Top N (ou tout si moins)
+            with st.expander(f"Voir le détail des stations (Top {min(top_n, len(sessions_df))})"):
+                st.dataframe(sessions_df.head(top_n).reset_index(drop=True))
         else:
             st.info("Aucune session pour afficher la répartition.")
-    except Exception as e:
+    except Exception:
         st.error("Erreur donut sessions :")
         st.text(traceback.format_exc())
 else:
     st.info("Colonne LIEUX manquante pour la répartition des sessions.")
-
 
 # -------------------------
 # Donut : coût par région
@@ -421,7 +442,7 @@ if "REGION" in df_filtered.columns and "Cout" in df_filtered.columns:
             st.plotly_chart(fig_region, use_container_width=True)
         else:
             st.info("Pas de coûts par région à afficher.")
-    except Exception as e:
+    except Exception:
         st.error("Erreur donut coût par région :")
         st.text(traceback.format_exc())
 else:
@@ -441,7 +462,6 @@ if type_col and "TEMPS en min" in df_filtered.columns:
         temps_borne = df_filtered.groupby(type_col)["TEMPS en min"].apply(lambda s: pd.to_numeric(s, errors='coerce').sum(min_count=1))
         if not temps_borne.empty:
             pie_df = pd.DataFrame({"type": temps_borne.index, "value": temps_borne.values})
-            # Regrouper petites parts si nécessaire (ex: valeurs uniques)
             pie_df = pie_df.sort_values("value", ascending=False)
             if len(pie_df) > 10:
                 topn = 10
@@ -454,12 +474,11 @@ if type_col and "TEMPS en min" in df_filtered.columns:
             st.plotly_chart(fig_temps, use_container_width=True)
         else:
             st.info("Pas de données temps par type de borne.")
-    except Exception as e:
+    except Exception:
         st.error("Erreur donut temps par type de borne :")
         st.text(traceback.format_exc())
 else:
     st.warning("Colonnes TYPE_BORNE ou TEMPS en min manquantes ou insuffisantes pour ce graphique.")
-    # Fallback : si TEMPS en min existe mais pas TYPE_BORNE -> regrouper par LIEUX
     if "TEMPS en min" in df_filtered.columns and "LIEUX" in df_filtered.columns:
         st.info("Affichage fallback : répartition du temps total par station (proxy si TYPE_BORNE absent).")
         try:
@@ -477,7 +496,7 @@ else:
                 st.plotly_chart(fig_temps_fallback, use_container_width=True)
             else:
                 st.info("Pas de données TEMPS en min valides pour le fallback.")
-        except Exception as e:
+        except Exception:
             st.error("Erreur fallback temps par station :")
             st.text(traceback.format_exc())
     else:
@@ -534,7 +553,7 @@ if ("Date" in df_filtered.columns) or date_col:
                 st.info("Pas de données mensuelles de coût à afficher.")
         else:
             st.info("Données Date ou Cout insuffisantes pour l'évolution mensuelle.")
-    except Exception as e:
+    except Exception:
         st.error("Erreur évolution mensuelle :")
         st.text(traceback.format_exc())
 else:

@@ -4,6 +4,15 @@ import plotly.graph_objects as go
 import pandas as pd
 from utils import load_data
 
+import streamlit as st
+st.write("=== DEBUG : colonnes et aperçu du DataFrame ===")
+try:
+    st.write("Colonnes disponibles :", df_filtered.columns.tolist())
+    st.write("Aperçu des 5 premières lignes :", df_filtered.head())
+except Exception as e:
+    st.error(f"Impossible d'afficher df_filtered: {e}")
+
+
 # --- MODE SOMBRE CUPRA ---
 if "theme_cupra" in st.session_state and st.session_state.theme_cupra:
     st.markdown("""

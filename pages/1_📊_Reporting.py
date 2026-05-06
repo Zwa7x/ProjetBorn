@@ -152,9 +152,7 @@ st.sidebar.markdown("### Options graphiques")
 group_method = st.sidebar.selectbox("Regrouper petites stations", ("Regrouper celles à 1 session", "Top N stations (autres → Autres)"), index=0)
 top_n = st.sidebar.slider("Top N (si sélection Top N)", min_value=5, max_value=50, value=10, step=1)
 
-# Afficher counts avant/après filtres dans la sidebar
-st.sidebar.markdown("### Taille des données")
-total_rows = len(df) if df is not None else 0
+st.divider()
 
 # Appliquer filtres Région / LIEUX
 df_filtered = df_temp.copy()
@@ -168,15 +166,6 @@ if date_range and date_col and date_col in df_filtered.columns and isinstance(da
         df_filtered = df_filtered[(pd.to_datetime(df_filtered[date_col], errors='coerce') >= pd.to_datetime(start)) & (pd.to_datetime(df_filtered[date_col], errors='coerce') <= pd.to_datetime(end))]
     except Exception:
         st.sidebar.warning("Le filtre date n'a pas pu être appliqué (format de date inattendu). Voir debug pour plus d'infos.")
-
-filtered_rows = len(df_filtered)
-st.sidebar.write(f"Total lignes source : **{total_rows}**")
-st.sidebar.write(f"Lignes après filtres : **{filtered_rows}**")
-if total_rows > 0:
-    pct = (filtered_rows / total_rows) * 100
-    st.sidebar.write(f"Filtrage appliqué : **{pct:.1f}%** des lignes restantes")
-
-st.divider()
 
 # -------------------------
 # Debug rétractable
@@ -383,7 +372,8 @@ else:
 st.divider()
 
 # -------------------------
-# Donut : répartition du nombre de sessions par station (avec regroupement Autres et tableau Top N)
+# Donut : répartition du nombre de sessions par station (avec regroupement Autres)
+# - L'expander affiche maintenant les stations regroupées (l'inverse du Top N)
 # -------------------------
 st.subheader("🧁 Répartition du nombre de sessions par station")
 if "LIEUX" in df_filtered.columns:
@@ -393,15 +383,18 @@ if "LIEUX" in df_filtered.columns:
             sessions_df = sessions.reset_index()
             sessions_df.columns = ["LIEUX", "count"]
 
-            # Méthode de regroupement pour le donut
+            # Déterminer main_df et others_df selon la méthode choisie
             if group_method == "Regrouper celles à 1 session":
                 main_df = sessions_df[sessions_df["count"] != 1].copy()
-                others_count = int(sessions_df[sessions_df["count"] == 1]["count"].sum())
+                others_df = sessions_df[sessions_df["count"] == 1].copy()
             else:  # Top N
                 main_df = sessions_df.head(top_n).copy()
-                others_count = int(sessions_df.iloc[top_n:]["count"].sum()) if len(sessions_df) > top_n else 0
+                others_df = sessions_df.iloc[top_n:].copy()
 
-            # Ajouter la ligne "Autres" si nécessaire
+            others_count = int(others_df["count"].sum()) if not others_df.empty else 0
+            others_stations_count = len(others_df)
+
+            # Construire pie_df (main + ligne Autres si nécessaire)
             if others_count > 0:
                 others_row = pd.DataFrame([{"LIEUX": "Autres", "count": others_count}])
                 pie_df = pd.concat([main_df, others_row], ignore_index=True)
@@ -412,15 +405,20 @@ if "LIEUX" in df_filtered.columns:
 
             # Badge indiquant combien sont regroupés en "Autres"
             if others_count > 0:
-                st.markdown(f"**Stations regroupées en 'Autres' :** `{others_count}`", unsafe_allow_html=True)
+                st.markdown(f"**Stations regroupées en 'Autres' :** `{others_stations_count}` stations, total sessions `{others_count}`", unsafe_allow_html=True)
 
+            # Pie chart
             fig_sessions = px.pie(pie_df, names="LIEUX", values="count", hole=0.5, title="Répartition des sessions par station")
             fig_sessions.update_traces(textinfo='percent+value', textposition='inside')
             st.plotly_chart(fig_sessions, use_container_width=True)
 
-            # Détail transparent : afficher Top N (ou tout si moins)
-            with st.expander(f"Voir le détail des stations (Top {min(top_n, len(sessions_df))})"):
-                st.dataframe(sessions_df.head(top_n).reset_index(drop=True))
+            # Expander : afficher la liste des stations regroupées (inverse du Top N)
+            with st.expander(f"Voir les stations regroupées (Autres) — {others_stations_count} éléments"):
+                if not others_df.empty:
+                    # Afficher les stations regroupées avec leur count
+                    st.dataframe(others_df.reset_index(drop=True))
+                else:
+                    st.info("Aucune station regroupée dans 'Autres' pour la configuration actuelle.")
         else:
             st.info("Aucune session pour afficher la répartition.")
     except Exception:

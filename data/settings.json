@@ -2,7 +2,7 @@
   "regions": {
     "Hauts-de-France": ["AUCHAN ENGLOS", "IONITY FRESNES", "TOTAL SECLIN"],
     "Grand Est": ["IONITY VERDUN", "TESLA METZ"],
-    "Île-de-France": ["IONITY RUNGIS", "TOTAL LA DÉFENSE"]
+    "Deux-Sèvres": ["IONITY RUNGIS", "TOTAL LA DÉFENSE"]
   },
   "types_borne": [
     "AC 22 kW",

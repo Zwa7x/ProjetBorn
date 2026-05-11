@@ -24,7 +24,6 @@ except Exception as e:
     st.stop()
 # Fin DEBUG_SYNTAX
 
-
 # pages/5_🛠️_Settings.py
 import streamlit as st
 from utils import load_settings, save_settings

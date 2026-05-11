@@ -1,7 +1,6 @@
 # pages/5_🛠️_Settings.py
 import streamlit as st
 import pandas as pd
-import json
 import traceback
 from utils import load_settings, save_settings
 
@@ -39,11 +38,6 @@ def settings_to_regions_df(s):
     return pd.DataFrame(rows)
 
 def df_to_settings_regions(df, base_settings):
-    """
-    Convertit le DataFrame édité en structure settings['regions'].
-    - Les lignes vides (Région vide) sont ignorées.
-    - Les lieux sont séparés par , ou ;.
-    """
     regs = {}
     for _, row in df.iterrows():
         name = str(row.get("Région") or "").strip()
@@ -52,10 +46,9 @@ def df_to_settings_regions(df, base_settings):
         acr = str(row.get("Acronyme") or "").strip()
         lieux_raw = str(row.get("Lieux (séparés par ,)") or "").strip()
         if lieux_raw:
-            lieux = [l.strip() for l in pd.Series(lieux_raw.split(",")).astype(str).tolist() if l.strip()]
+            lieux = [l.strip() for l in lieux_raw.split(",") if l.strip()]
         else:
             lieux = []
-        # preserve existing extra meta if present
         existing = (base_settings.get("regions") or {}).get(name, {})
         if isinstance(existing, dict):
             regs[name] = {"acronyme": acr or existing.get("acronyme", ""), "lieux": list(dict.fromkeys(lieux or existing.get("lieux", [])))}
@@ -77,35 +70,74 @@ def safe_save_and_rerun(s, msg="Sauvegarde effectuée"):
         st.text(traceback.format_exc())
 
 # -----------------------
-# Top: tableau récapitulatif éditable (Regions)
+# Initialisation du DataFrame éditable dans session_state
+# -----------------------
+if "regions_df" not in st.session_state:
+    st.session_state["regions_df"] = settings_to_regions_df(settings)
+
+# -----------------------
+# Top: tableau récapitulatif éditable (Regions) avec ajout/suppression de lignes
 # -----------------------
 st.markdown("## Récapitulatif des régions")
 st.markdown("Édite directement les cellules. **Région** est la clé principale (nom affiché). Les lieux sont séparés par des virgules.")
-regions_df = settings_to_regions_df(settings)
 
-# Utiliser st.data_editor si disponible, sinon fallback sur st.experimental_data_editor
+# boutons d'action pour le tableau
+col_add, col_del, col_apply, col_cancel = st.columns([1,1,1,1])
+
+with col_add:
+    if st.button("Ajouter une ligne", key="btn_add_row"):
+        # ajouter une ligne vide au DataFrame en session
+        df = st.session_state.get("regions_df", pd.DataFrame(columns=["Région", "Acronyme", "Lieux (séparés par ,)"]))
+        new_row = pd.DataFrame([{"Région": "", "Acronyme": "", "Lieux (séparés par ,)": ""}])
+        st.session_state["regions_df"] = pd.concat([df, new_row], ignore_index=True)
+        if hasattr(st, "experimental_rerun"):
+            st.experimental_rerun()
+
+with col_del:
+    # suppression par sélection de noms de région (pratique si data_editor ne fournit pas selected rows)
+    current_names = [str(x) for x in st.session_state.get("regions_df", pd.DataFrame()).get("Région", []).tolist() if str(x).strip()]
+    to_delete = st.multiselect("Supprimer lignes (sélection)", options=current_names, key="multisel_del_rows")
+    if st.button("Supprimer sélection", key="btn_del_selected"):
+        if to_delete:
+            df = st.session_state.get("regions_df", pd.DataFrame())
+            df = df[~df["Région"].isin(to_delete)].reset_index(drop=True)
+            st.session_state["regions_df"] = df
+            if hasattr(st, "experimental_rerun"):
+                st.experimental_rerun()
+        else:
+            st.warning("Aucune ligne sélectionnée pour suppression.")
+
+# Affichage éditable
 data_editor = getattr(st, "data_editor", None) or getattr(st, "experimental_data_editor", None)
-
 if data_editor:
-    edited_df = data_editor(regions_df, use_container_width=True, key="regions_data_editor")
+    # afficher et permettre édition inline ; on lie la valeur au session_state DataFrame
+    edited_df = data_editor(st.session_state["regions_df"], use_container_width=True, key="regions_data_editor")
+    # mettre à jour la session_state si l'utilisateur a modifié le DataEditor
+    # (certaines versions retournent un DataFrame, d'autres un dict-like)
+    try:
+        if isinstance(edited_df, pd.DataFrame):
+            st.session_state["regions_df"] = edited_df
+        else:
+            # tenter conversion
+            st.session_state["regions_df"] = pd.DataFrame(edited_df)
+    except Exception:
+        pass
 else:
-    # fallback non éditable (rare), on affiche et propose un formulaire classique
-    st.warning("Édition inline non disponible dans cette version de Streamlit. Utiliser les formulaires ci‑dessous.")
-    st.dataframe(regions_df, use_container_width=True)
-    edited_df = regions_df.copy()
+    st.warning("Édition inline non disponible dans cette version de Streamlit.")
+    st.dataframe(st.session_state["regions_df"], use_container_width=True)
 
-col_apply, col_cancel = st.columns([1,1])
 with col_apply:
-    if st.button("Appliquer les modifications du tableau", key="apply_regions_table"):
+    if st.button("Appliquer les modifications du tableau", key="btn_apply_table"):
         try:
-            new_regions = df_to_settings_regions(edited_df, settings)
+            new_regions = df_to_settings_regions(st.session_state["regions_df"], settings)
             settings["regions"] = new_regions
             safe_save_and_rerun(settings, "Modifications des régions appliquées.")
         except Exception as e:
             st.error("Erreur lors de l'application : " + str(e))
             st.text(traceback.format_exc())
+
 with col_cancel:
-    if st.button("Annuler les modifications (recharger)", key="cancel_regions_table"):
+    if st.button("Annuler (recharger)", key="btn_cancel_table"):
         if hasattr(st, "experimental_rerun"):
             st.experimental_rerun()
         else:
@@ -114,14 +146,13 @@ with col_cancel:
 st.markdown("---")
 
 # -----------------------
-# Section Lieux (dédiée, plus lisible)
+# Section Lieux (dédiée)
 # -----------------------
 st.markdown("## Lieux (par région)")
 regions_list = sorted(list(settings.get("regions", {}).keys()))
 if not regions_list:
     st.info("Aucune région définie. Ajoute d'abord une région dans le tableau ci‑dessus.")
 else:
-    # colonne gauche: sélection région + liste des lieux
     col_l1, col_l2 = st.columns([2,1])
     with col_l1:
         sel_region = st.selectbox("Choisir une région", [""] + regions_list, key="select_lieux_region")
@@ -129,13 +160,11 @@ else:
             st.subheader(f"Lieux pour {sel_region}")
             lieux = settings["regions"].get(sel_region, {}).get("lieux", []) or []
             if lieux:
-                # affichage en tableau simple
                 df_lieux = pd.DataFrame({"Lieu": lieux})
                 st.dataframe(df_lieux, use_container_width=True)
             else:
                 st.info("Aucun lieu pour cette région.")
 
-            # ajout rapide
             with st.form(f"form_add_lieu_{sel_region}", clear_on_submit=True):
                 new_lieu = st.text_input("Ajouter un lieu", "")
                 if st.form_submit_button("Ajouter le lieu"):
@@ -149,7 +178,6 @@ else:
                             settings["regions"][sel_region].setdefault("lieux", []).append(nl)
                             safe_save_and_rerun(settings, f"Lieu '{nl}' ajouté à {sel_region}.")
 
-    # colonne droite: suppression multiple
     with col_l2:
         st.markdown("### Supprimer des lieux")
         if sel_region:
@@ -172,8 +200,6 @@ st.markdown("---")
 # -----------------------
 st.markdown("## Types de borne")
 tb = settings.get("types_borne", []) or []
-
-# Normaliser affichage : si liste d'objets, afficher label; si strings, afficher string
 def tb_label(t):
     return t if isinstance(t, str) else (t.get("label") or t.get("code") or str(t))
 
@@ -183,7 +209,6 @@ if tb:
 else:
     st.info("Aucun type de borne défini.")
 
-# Ajouter un type
 with st.form("form_add_type", clear_on_submit=True):
     new_type = st.text_input("Ajouter un type (ex: AC 22kW)", "")
     if st.form_submit_button("Ajouter le type"):
@@ -195,11 +220,9 @@ with st.form("form_add_type", clear_on_submit=True):
             if nt in existing_labels:
                 st.warning("Ce type existe déjà.")
             else:
-                # on stocke en string pour simplicité
                 settings["types_borne"].append(nt)
                 safe_save_and_rerun(settings, f"Type '{nt}' ajouté.")
 
-# Supprimer types
 if settings.get("types_borne"):
     options = [tb_label(t) for t in settings["types_borne"]]
     rem = st.multiselect("Sélectionner les types à supprimer", options=options, key="multisel_types_main")

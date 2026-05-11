@@ -1,3 +1,30 @@
+# DEBUG_SYNTAX — coller en tout début de pages/5_🛠️_Settings.py
+import streamlit as st, ast, traceback, sys, pathlib
+st.markdown("### DEBUG SYNTAX: tentative d'analyse du fichier source")
+try:
+    p = pathlib.Path(__file__).resolve()
+    code = p.read_text(encoding="utf-8")
+    try:
+        ast.parse(code, filename=str(p))
+        st.success("Aucune erreur de syntaxe détectée par ast.parse()")
+    except SyntaxError as se:
+        st.error(f"SyntaxError détectée: {se.msg}")
+        st.write(f"Fichier: {se.filename}")
+        st.write(f"Ligne: {se.lineno}  Colonne: {se.offset}")
+        st.code(se.text or "", language="python")
+        # afficher un extrait autour de la ligne fautive
+        lines = code.splitlines()
+        start = max(0, (se.lineno or 1) - 4)
+        end = min(len(lines), (se.lineno or 1) + 2)
+        excerpt = "\n".join(f"{i+1:4d}: {lines[i]}" for i in range(start, end))
+        st.code(excerpt, language="python")
+except Exception as e:
+    st.error("Erreur inattendue lors du debug syntaxique: " + str(e))
+    st.text(traceback.format_exc())
+    st.stop()
+# Fin DEBUG_SYNTAX
+
+
 # pages/5_🛠️_Settings.py
 import streamlit as st
 from utils import load_settings, save_settings

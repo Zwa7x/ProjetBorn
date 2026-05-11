@@ -1,3 +1,27 @@
+# --- quick restore session_state from DB (paste at top, after import streamlit as st) ---
+try:
+    # reload settings from DB and rehydrate session state
+    _settings_tmp = load_settings()
+    if isinstance(_settings_tmp, dict):
+        st.session_state["settings_from_db"] = _settings_tmp
+        # rebuild regions_df used by la page
+        def _settings_to_regions_df(s):
+            import pandas as _pd
+            rows = []
+            for name, meta in (s.get("regions") or {}).items():
+                acr = meta.get("acronyme", "") if isinstance(meta, dict) else ""
+                lieux = meta.get("lieux", []) if isinstance(meta, dict) else []
+                rows.append({"Supprimer": False, "Région": name, "Acronyme": acr, "Lieux (séparés par ,)": ", ".join(lieux)})
+            if not rows:
+                return _pd.DataFrame(columns=["Supprimer", "Région", "Acronyme", "Lieux (séparés par ,)"])
+            return _pd.DataFrame(rows)
+        st.session_state["regions_df"] = _settings_to_regions_df(_settings_tmp)
+        st.session_state["settings_loaded_ok"] = True
+        st.experimental_rerun()
+except Exception as _e:
+    st.error("Restore session_state failed: " + str(_e))
+
+
 import streamlit as st
 import pandas as pd
 import traceback

@@ -1,74 +1,104 @@
-# pages/debug_settings.py  -- test minimal pour vérifier UI + load/save
+# pages/5_🛠️_Settings.py (version simplifiée et robuste)
 import streamlit as st
 from utils import load_settings, save_settings
+import pandas as pd
 
-st.set_page_config(page_title="DEBUG Settings", layout="wide")
-st.title("DEBUG : Settings - test minimal")
+st.set_page_config(page_title="Settings", layout="wide")
+st.title("⚙️ Paramètres (version simplifiée)")
 
-# Affichage du contenu chargé
+# Chargement sûr
 try:
     settings = load_settings()
+    if not isinstance(settings, dict):
+        settings = {"regions": {}, "types_borne": []}
 except Exception as e:
-    st.error("load_settings() a levé une exception : " + str(e))
-    import traceback; st.text(traceback.format_exc())
-    st.stop()
+    st.error("Impossible de charger les paramètres: " + str(e))
+    settings = {"regions": {}, "types_borne": []}
 
-st.subheader("Résumé des settings chargés")
-st.write("Type:", type(settings).__name__)
-st.write("Clés racine:", list(settings.keys()))
-st.write("Nombre de régions:", len(settings.get("regions", {})))
-st.write("Types de borne (raw):")
-st.json(settings.get("types_borne", []))
+# Helpers d'affichage
+def regions_summary(s):
+    rows = []
+    for name, meta in (s.get("regions") or {}).items():
+        acr = meta.get("acronyme", "") if isinstance(meta, dict) else ""
+        lieux = meta.get("lieux", []) if isinstance(meta, dict) else []
+        rows.append({"Région": name, "Acronyme": acr, "Nombre de lieux": len(lieux)})
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["Région", "Acronyme", "Nombre de lieux"])
 
-# Formulaire simple pour ajouter une région
-st.markdown("---")
-st.subheader("Ajouter une région (test rapide)")
-with st.form("add_region_test", clear_on_submit=True):
-    region_name = st.text_input("Nom de la région")
-    region_acro = st.text_input("Acronyme (optionnel)")
-    submitted = st.form_submit_button("Ajouter la région")
-    if submitted:
-        if not region_name.strip():
-            st.warning("Nom requis")
-        else:
-            settings.setdefault("regions", {})
-            if region_name in settings["regions"]:
-                st.warning("Région déjà existante")
+# Layout simple: colonnes
+col_left, col_right = st.columns([2, 1])
+
+with col_left:
+    st.header("Régions")
+    df = regions_summary(settings)
+    st.dataframe(df, use_container_width=True)
+
+    st.markdown("### Ajouter une région")
+    with st.form("add_region"):
+        rname = st.text_input("Nom de la région")
+        racro = st.text_input("Acronyme (optionnel)")
+        if st.form_submit_button("Ajouter"):
+            if not rname.strip():
+                st.warning("Nom requis")
             else:
-                settings["regions"][region_name] = {"acronyme": region_acro.strip(), "lieux": []}
-                try:
-                    save_settings(settings)
-                    st.success(f"Région '{region_name}' ajoutée et sauvegardée.")
-                except Exception as e:
-                    st.error("Erreur save_settings(): " + str(e))
+                settings.setdefault("regions", {})
+                if rname in settings["regions"]:
+                    st.warning("Région déjà existante")
+                else:
+                    settings["regions"][rname] = {"acronyme": racro.strip(), "lieux": []}
+                    try:
+                        save_settings(settings)
+                        st.success("Région ajoutée")
+                    except Exception as e:
+                        st.error("Erreur sauvegarde: " + str(e))
 
-# Formulaire simple pour ajouter un type de borne
-st.markdown("---")
-st.subheader("Ajouter un type de borne (test rapide)")
-with st.form("add_type_test", clear_on_submit=True):
-    type_label = st.text_input("Libellé du type")
-    submitted2 = st.form_submit_button("Ajouter le type")
-    if submitted2:
-        if not type_label.strip():
-            st.warning("Libellé requis")
-        else:
-            tb = settings.setdefault("types_borne", [])
-            # accepte soit liste de strings soit liste d'objets
-            if isinstance(tb, list) and type_label not in [t if isinstance(t, str) else t.get("label") for t in tb]:
-                tb.append(type_label)
-                try:
-                    save_settings(settings)
-                    st.success(f"Type '{type_label}' ajouté et sauvegardé.")
-                except Exception as e:
-                    st.error("Erreur save_settings(): " + str(e))
+    st.markdown("### Gérer lieux pour une région")
+    regions_list = list(settings.get("regions", {}).keys())
+    sel = st.selectbox("Sélectionner une région", [""] + regions_list)
+    if sel:
+        st.write("Lieux actuels:", settings["regions"][sel].get("lieux", []))
+        with st.form(f"add_lieu_{sel}", clear_on_submit=True):
+            nl = st.text_input("Nom du lieu")
+            if st.form_submit_button("Ajouter lieu"):
+                if nl.strip():
+                    if nl in settings["regions"][sel]["lieux"]:
+                        st.warning("Lieu déjà présent")
+                    else:
+                        settings["regions"][sel]["lieux"].append(nl.strip())
+                        try:
+                            save_settings(settings)
+                            st.success("Lieu ajouté")
+                        except Exception as e:
+                            st.error("Erreur sauvegarde: " + str(e))
+                else:
+                    st.warning("Nom requis")
+
+with col_right:
+    st.header("Types de borne")
+    tb = settings.get("types_borne", [])
+    if isinstance(tb, list) and tb:
+        for t in tb:
+            st.write("- ", t if isinstance(t, str) else (t.get("label") or str(t)))
+    else:
+        st.info("Aucun type défini")
+
+    st.markdown("### Ajouter un type")
+    with st.form("add_type"):
+        tlabel = st.text_input("Libellé")
+        if st.form_submit_button("Ajouter"):
+            if not tlabel.strip():
+                st.warning("Libellé requis")
             else:
-                st.warning("Type déjà présent ou format inattendu.")
+                settings.setdefault("types_borne", [])
+                # normaliser en liste de strings
+                if any((tlabel == (t if isinstance(t, str) else t.get("label")) ) for t in settings["types_borne"]):
+                    st.warning("Type déjà présent")
+                else:
+                    settings["types_borne"].append(tlabel.strip())
+                    try:
+                        save_settings(settings)
+                        st.success("Type ajouté")
+                    except Exception as e:
+                        st.error("Erreur sauvegarde: " + str(e))
 
-# Affichage final pour vérifier la persistance
 st.markdown("---")
-st.subheader("Etat courant après opérations")
-st.write("Nombre de régions:", len(settings.get("regions", {})))
-st.write("Types de borne (après):")
-st.json(settings.get("types_borne", []))
-
-st.info("Si ce test s'affiche et que l'ajout fonctionne, la page Settings d'origine contient probablement une condition qui empêche l'affichage (sélecteur, st.stop(), ou rerun).")
+st.write("Debug rapide: nombre de régions =", len(settings.get("regions", {})), " | types =", len(settings.get("types_borne", [])))

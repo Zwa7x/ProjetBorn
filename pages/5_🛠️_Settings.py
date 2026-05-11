@@ -124,65 +124,6 @@ except Exception:
 st.session_state["regions_df"] = df_init
 
 # -----------------------
-# Menu contextuel horizontal (Ajouter / Suppr sélection / Appliquer / Annuler)
-# -----------------------
-left, right = st.columns([3, 1])
-with right:
-    st.markdown('<div class="top-right-menu">', unsafe_allow_html=True)
-    add_row = st.button("➕ Ajouter ligne", key="ctx_add_row")
-    del_selected = st.button("🗑️ Suppr. sélection", key="ctx_del_sel")
-    apply_table = st.button("✅ Appliquer", key="ctx_apply")
-    cancel_table = st.button("↺ Annuler", key="ctx_cancel")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# Actions du menu
-if add_row:
-    df = st.session_state.get("regions_df", pd.DataFrame(columns=expected_cols))
-    new_row = pd.DataFrame([{"Supprimer": False, "Région": "", "Acronyme": "", "Lieux (séparés par ,)": ""}])
-    st.session_state["regions_df"] = pd.concat([df, new_row], ignore_index=True)
-    if hasattr(st, "experimental_rerun"):
-        st.experimental_rerun()
-
-if del_selected:
-    df = st.session_state.get("regions_df", pd.DataFrame())
-    if "Supprimer" in df.columns:
-        try:
-            df["Supprimer"] = df["Supprimer"].astype(bool)
-            if df["Supprimer"].any():
-                df = df[~df["Supprimer"]].reset_index(drop=True)
-                st.session_state["regions_df"] = df
-                if hasattr(st, "experimental_rerun"):
-                    st.experimental_rerun()
-            else:
-                st.warning("Aucune ligne cochée pour suppression.")
-        except Exception:
-            st.warning("Impossible d'interpréter la colonne Supprimer.")
-    else:
-        st.warning("Aucune colonne Supprimer trouvée.")
-
-if apply_table:
-    try:
-        df = st.session_state.get("regions_df", pd.DataFrame())
-        # forcer l'ordre des colonnes et types
-        for c in expected_cols:
-            if c not in df.columns:
-                df[c] = False if c == "Supprimer" else ""
-        df = df[expected_cols]
-        df["Supprimer"] = df["Supprimer"].astype(bool)
-        new_regions = df_to_settings_regions(df, settings)
-        settings["regions"] = new_regions
-        safe_save_and_rerun(settings, "Modifications des régions appliquées.")
-    except Exception as e:
-        st.error("Erreur lors de l'application : " + str(e))
-        st.text(traceback.format_exc())
-
-if cancel_table:
-    if hasattr(st, "experimental_rerun"):
-        st.experimental_rerun()
-    else:
-        st.session_state["_refresh_toggle"] = not st.session_state.get("_refresh_toggle", False)
-
-# -----------------------
 # Top: tableau récapitulatif éditable (Regions)
 # -----------------------
 st.markdown("## Récapitulatif des régions")
@@ -219,6 +160,68 @@ if data_editor:
 else:
     st.warning("Édition inline non disponible dans cette version de Streamlit.")
     st.dataframe(st.session_state["regions_df"], use_container_width=True)
+
+# -----------------------
+# Menu contextuel horizontal (Ajouter / Suppr sélection / Appliquer / Annuler)
+# -----------------------
+
+st.markdown('<div class="ctx-menu">', unsafe_allow_html=True)
+col1, col2, col3, col4 = st.columns([1,1,1,1])
+with col1:
+    add_row = st.button("➕ Ajouter ligne", key="ctx_add_row")
+with col2:
+    del_selected = st.button("🗑️ Suppr. sélection", key="ctx_del_sel")
+with col3:
+    apply_table = st.button("✅ Appliquer", key="ctx_apply")
+with col4:
+    cancel_table = st.button("↺ Annuler", key="ctx_cancel")
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Actions (identiques à avant)
+if add_row:
+    df = st.session_state.get("regions_df", pd.DataFrame(columns=expected_cols))
+    new_row = pd.DataFrame([{"Supprimer": False, "Région": "", "Acronyme": "", "Lieux (séparés par ,)": ""}])
+    st.session_state["regions_df"] = pd.concat([df, new_row], ignore_index=True)
+    if hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
+
+if del_selected:
+    df = st.session_state.get("regions_df", pd.DataFrame())
+    if "Supprimer" in df.columns:
+        try:
+            df["Supprimer"] = df["Supprimer"].astype(bool)
+            if df["Supprimer"].any():
+                df = df[~df["Supprimer"]].reset_index(drop=True)
+                st.session_state["regions_df"] = df
+                if hasattr(st, "experimental_rerun"):
+                    st.experimental_rerun()
+            else:
+                st.warning("Aucune ligne cochée pour suppression.")
+        except Exception:
+            st.warning("Impossible d'interpréter la colonne Supprimer.")
+    else:
+        st.warning("Aucune colonne Supprimer trouvée.")
+
+if apply_table:
+    try:
+        df = st.session_state.get("regions_df", pd.DataFrame())
+        for c in expected_cols:
+            if c not in df.columns:
+                df[c] = False if c == "Supprimer" else ""
+        df = df[expected_cols]
+        df["Supprimer"] = df["Supprimer"].astype(bool)
+        new_regions = df_to_settings_regions(df, settings)
+        settings["regions"] = new_regions
+        safe_save_and_rerun(settings, "Modifications des régions appliquées.")
+    except Exception as e:
+        st.error("Erreur lors de l'application : " + str(e))
+        st.text(traceback.format_exc())
+
+if cancel_table:
+    if hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
+    else:
+        st.session_state["_refresh_toggle"] = not st.session_state.get("_refresh_toggle", False)
 
 st.markdown("---")
 

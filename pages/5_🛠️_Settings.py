@@ -122,6 +122,27 @@ if "regions_df" not in st.session_state:
     st.session_state["regions_df"] = settings_to_regions_df(settings)
 
 # -----------------------
+# Top: tableau récapitulatif éditable (Regions) avec colonne Supprimer
+# -----------------------
+st.markdown("## Récapitulatif des régions")
+st.markdown("Édite directement les cellules. **Région** est la clé principale. Coche **Supprimer** pour retirer une ligne puis cliquez sur **Appliquer**.")
+
+# Affichage éditable (data_editor si dispo)
+data_editor = getattr(st, "data_editor", None) or getattr(st, "experimental_data_editor", None)
+if data_editor:
+    edited = data_editor(st.session_state["regions_df"], use_container_width=True, key="regions_data_editor")
+    try:
+        if isinstance(edited, pd.DataFrame):
+            st.session_state["regions_df"] = edited
+        else:
+            st.session_state["regions_df"] = pd.DataFrame(edited)
+    except Exception:
+        pass
+else:
+    st.warning("Édition inline non disponible dans cette version de Streamlit.")
+    st.dataframe(st.session_state["regions_df"], use_container_width=True)
+
+# -----------------------
 # Menu contextuel en haut à droite (Ajouter / Supprimer / Appliquer / Annuler)
 # -----------------------
 # On crée une ligne avec un espace à gauche et le menu à droite
@@ -177,27 +198,6 @@ if cancel_table:
         st.experimental_rerun()
     else:
         st.session_state["_refresh_toggle"] = not st.session_state.get("_refresh_toggle", False)
-
-# -----------------------
-# Top: tableau récapitulatif éditable (Regions) avec colonne Supprimer
-# -----------------------
-st.markdown("## Récapitulatif des régions")
-st.markdown("Édite directement les cellules. **Région** est la clé principale. Coche **Supprimer** pour retirer une ligne puis cliquez sur **Appliquer**.")
-
-# Affichage éditable (data_editor si dispo)
-data_editor = getattr(st, "data_editor", None) or getattr(st, "experimental_data_editor", None)
-if data_editor:
-    edited = data_editor(st.session_state["regions_df"], use_container_width=True, key="regions_data_editor")
-    try:
-        if isinstance(edited, pd.DataFrame):
-            st.session_state["regions_df"] = edited
-        else:
-            st.session_state["regions_df"] = pd.DataFrame(edited)
-    except Exception:
-        pass
-else:
-    st.warning("Édition inline non disponible dans cette version de Streamlit.")
-    st.dataframe(st.session_state["regions_df"], use_container_width=True)
 
 st.markdown("---")
 

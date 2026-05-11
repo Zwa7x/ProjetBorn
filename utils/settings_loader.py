@@ -1,6 +1,10 @@
 import json
 import os
 
+if not DB_PATH.exists():
+    from scripts.init_db import init_db
+    init_db()
+
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SETTINGS_PATH = os.path.join(ROOT_DIR, "data", "settings.json")
 

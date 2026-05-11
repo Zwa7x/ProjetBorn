@@ -1,33 +1,4 @@
-# DEBUG: afficher import et contenu de settings
-import streamlit as st, traceback
-st.markdown("### DEBUG: vérification import & load_settings")
-try:
-    from utils import load_settings, save_settings
-    st.success("Import utils OK")
-except Exception as e:
-    st.error("Erreur d'import utils : " + str(e))
-    st.text(traceback.format_exc())
-    st.stop()
-
-try:
-    s = load_settings()
-    st.write("Type retourné par load_settings():", type(s).__name__)
-    # affiche seulement un résumé pour éviter surcharge
-    if isinstance(s, dict):
-        st.write("Clés racine:", list(s.keys()))
-        st.write("Nombre de régions:", len(s.get("regions", {})))
-        st.write("Types de borne (exemple):", (s.get("types_borne")[:5] if isinstance(s.get("types_borne"), list) else s.get("types_borne")))
-    else:
-        st.warning("load_settings() ne renvoie pas un dict.")
-    st.success("load_settings() exécuté sans lever d'exception")
-except Exception as e:
-    st.error("load_settings a levé une exception : " + str(e))
-    st.text(traceback.format_exc())
-    st.stop()
-
-
-
-# utils/settings_loader.py  -- SQLite version
+# utils/settings_loader.py
 import sqlite3
 import json
 from pathlib import Path
@@ -44,31 +15,80 @@ def _ensure_data_dir():
 
 def _get_conn():
     _ensure_data_dir()
-    conn = sqlite3.connect(DB_PATH, timeout=10, isolation_level=None)  # autocommit off; use transactions
+    # create DB file if missing; connect normally
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.execute("PRAGMA foreign_keys = ON;")
     conn.row_factory = sqlite3.Row
     return conn
 
-def init_db(schema_sql: str):
+def _init_schema_if_missing():
+    """
+    Create the minimal schema if tables do not exist.
+    Safe to call repeatedly.
+    """
+    _ensure_data_dir()
+    # If DB file doesn't exist, connecting will create it; ensure tables exist
     conn = _get_conn()
-    conn.executescript(schema_sql)
-    conn.close()
+    try:
+        conn.executescript("""
+        PRAGMA foreign_keys = ON;
+        CREATE TABLE IF NOT EXISTS regions (
+          acronym TEXT PRIMARY KEY,
+          long_name TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS places (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          region_acronym TEXT NOT NULL,
+          address TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(region_acronym) REFERENCES regions(acronym) ON DELETE RESTRICT
+        );
+        CREATE TABLE IF NOT EXISTS charger_types (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          code TEXT UNIQUE NOT NULL,
+          label TEXT NOT NULL,
+          specs TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+    finally:
+        conn.close()
 
 def load_settings() -> Dict[str, Any]:
+    """
+    Retourne {"regions": {...}, "types_borne": [...]}
+    - regions: clé = long_name (ou acronym si pas de long_name), valeur = {"acronyme":..., "lieux":[...]}
+    - types_borne: liste d'objets {"code","label","specs"} (ou liste de strings si tu préfères)
+    """
+    _init_schema_if_missing()
     conn = _get_conn()
     cur = conn.cursor()
+
     # regions
     cur.execute("SELECT acronym, long_name FROM regions")
     regs = {}
     for row in cur.fetchall():
-        regs[row["acronym"]] = {"acronyme": row["acronym"], "lieux": []}
-    # places -> attach to regions by acronym
+        long_name = row["long_name"] or row["acronym"]
+        regs[long_name] = {"acronyme": row["acronym"], "lieux": []}
+
+    # places -> attach to regions by acronym (try to find matching long_name)
     cur.execute("SELECT name, region_acronym FROM places")
     for row in cur.fetchall():
         ra = row["region_acronym"]
-        if ra not in regs:
-            regs[ra] = {"acronyme": ra, "lieux": []}
-        regs[ra]["lieux"].append(row["name"])
+        # find region key by matching acronym
+        found = None
+        for k, v in regs.items():
+            if v.get("acronyme") == ra:
+                found = k
+                break
+        if not found:
+            # fallback: use acronym as key
+            found = ra
+            regs.setdefault(found, {"acronyme": ra, "lieux": []})
+        regs[found]["lieux"].append(row["name"])
+
     # charger types
     cur.execute("SELECT code, label, specs FROM charger_types")
     types = []
@@ -78,14 +98,16 @@ def load_settings() -> Dict[str, Any]:
         except Exception:
             specs = {}
         types.append({"code": row["code"], "label": row["label"], "specs": specs})
+
     conn.close()
     return {"regions": regs, "types_borne": types}
 
 def save_settings(settings: Dict[str, Any]) -> None:
     """
-    Overwrites DB content from settings dict.
-    This is simple and safe because it uses a transaction.
+    Écrase le contenu de la DB à partir du dict settings.
+    Utilise une transaction pour garantir l'atomicité.
     """
+    _init_schema_if_missing()
     conn = _get_conn()
     cur = conn.cursor()
     try:
@@ -94,14 +116,28 @@ def save_settings(settings: Dict[str, Any]) -> None:
         cur.execute("DELETE FROM places")
         cur.execute("DELETE FROM regions")
         cur.execute("DELETE FROM charger_types")
-        # insert regions
+
+        # insert regions and places
         for region_key, meta in (settings.get("regions") or {}).items():
-            acr = meta.get("acronyme") or region_key
+            # meta peut être dict ou autre ; normaliser
+            if isinstance(meta, dict):
+                acr = meta.get("acronyme") or region_key
+                lieux = meta.get("lieux") or []
+            else:
+                acr = str(meta) if meta else region_key
+                lieux = []
             long_name = region_key
-            cur.execute("INSERT INTO regions(acronym,long_name) VALUES(?,?)", (acr, long_name))
-            for lieu in meta.get("lieux", []) or []:
-                cur.execute("INSERT INTO places(name,region_acronym,address) VALUES(?,?,?)", (lieu, acr, ""))
-        # insert charger types (if list of strings, convert)
+            cur.execute(
+                "INSERT INTO regions(acronym,long_name) VALUES(?,?)",
+                (acr, long_name)
+            )
+            for lieu in (lieux or []):
+                cur.execute(
+                    "INSERT INTO places(name,region_acronym,address) VALUES(?,?,?)",
+                    (str(lieu), acr, "")
+                )
+
+        # insert charger types
         for t in settings.get("types_borne", []) or []:
             if isinstance(t, str):
                 code = t
@@ -112,8 +148,13 @@ def save_settings(settings: Dict[str, Any]) -> None:
                 label = t.get("label") or code
                 specs = t.get("specs") or {}
             else:
+                # ignore unknown formats
                 continue
-            cur.execute("INSERT INTO charger_types(code,label,specs) VALUES(?,?,?)", (code, label, json.dumps(specs)))
+            cur.execute(
+                "INSERT INTO charger_types(code,label,specs) VALUES(?,?,?)",
+                (code, label, json.dumps(specs))
+            )
+
         cur.execute("COMMIT")
     except Exception:
         cur.execute("ROLLBACK")

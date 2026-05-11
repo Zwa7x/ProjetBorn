@@ -1,277 +1,210 @@
-# DEBUG DIAGNOSTIC — coller en tout début de pages/5_🛠️_Settings.py
-import streamlit as st, traceback, ast, pathlib, sys, importlib
+# pages/5_🛠️_Settings.py
+import streamlit as st
+from utils import load_settings, save_settings
+import pandas as pd
 from pathlib import Path
+import traceback
 
-st.set_page_config(page_title="DEBUG DIAGNOSTIC", layout="wide")
-st.title("DEBUG DIAGNOSTIC — Vérification import / DB / settings")
+st.set_page_config(page_title="⚙️ Paramètres", layout="wide")
+st.title("⚙️ Paramètres de l'application")
 
-p = Path(__file__).resolve()
-st.write("Fichier page :", str(p))
-# 1) Vérifier la syntaxe du fichier page
+# -----------------------
+# Chargement sûr des settings
+# -----------------------
 try:
-    code = p.read_text(encoding="utf-8")
-    try:
-        ast.parse(code, filename=str(p))
-        st.success("AST parse OK pour la page")
-    except SyntaxError as se:
-        st.error(f"SyntaxError dans la page: {se.msg} (ligne {se.lineno}, col {se.offset})")
-        st.code(se.text or "", language="python")
-        lines = code.splitlines()
-        start = max(0, (se.lineno or 1) - 4)
-        end = min(len(lines), (se.lineno or 1) + 2)
-        excerpt = "\n".join(f"{i+1:4d}: {lines[i]}" for i in range(start, end))
-        st.code(excerpt, language="python")
-        st.stop()
+    settings = load_settings()
+    if not isinstance(settings, dict):
+        settings = {"regions": {}, "types_borne": []}
 except Exception as e:
-    st.error("Impossible de lire/parse la page: " + str(e))
+    st.error("Impossible de charger les paramètres : " + str(e))
     st.text(traceback.format_exc())
-    st.stop()
+    settings = {"regions": {}, "types_borne": []}
 
-# 2) Tester l'import de utils et du loader
-st.markdown("**Import utils / settings_loader**")
-try:
-    import utils
-    st.success("Module utils importé")
-except Exception as e:
-    st.error("Erreur import utils: " + str(e))
-    st.text(traceback.format_exc())
-    st.stop()
+# -----------------------
+# Containers réutilisables pour forcer le rerender
+# -----------------------
+_regions_table_container = st.container()
+_select_region_container = st.container()
+_lieux_container = st.container()
+_types_container = st.container()
+_message_container = st.container()
 
-try:
-    # forcer le rechargement pour éviter cache stale
-    import importlib
-    importlib.reload(utils)
-    from utils import load_settings, save_settings
-    st.success("load_settings et save_settings importés depuis utils")
-except Exception as e:
-    st.error("Erreur import load_settings/save_settings: " + str(e))
-    st.text(traceback.format_exc())
-    # tenter import direct du module
+# -----------------------
+# Helpers
+# -----------------------
+def regions_summary_df(s):
+    rows = []
+    for name, meta in (s.get("regions") or {}).items():
+        acr = meta.get("acronyme", "") if isinstance(meta, dict) else ""
+        lieux = meta.get("lieux", []) if isinstance(meta, dict) else []
+        rows.append({"Région": name, "Acronyme": acr, "Nombre de lieux": len(lieux)})
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["Région", "Acronyme", "Nombre de lieux"])
+
+def safe_save_and_rerun(s, msg="Sauvegarde effectuée"):
     try:
-        import utils.settings_loader as sl
-        importlib.reload(sl)
-        st.write("Import direct utils.settings_loader OK")
-    except Exception as e2:
-        st.error("Erreur import direct utils.settings_loader: " + str(e2))
-        st.text(traceback.format_exc())
-    st.stop()
-
-# 3) Vérifier existence et permissions du fichier DB / JSON
-ROOT = Path(__file__).resolve().parent.parent
-data_dir = ROOT / "data"
-db_path = data_dir / "settings.db"
-json_path = data_dir / "settings.json"
-
-st.write("Data dir:", str(data_dir))
-st.write("DB path:", str(db_path), "exists:", db_path.exists())
-if db_path.exists():
-    try:
-        st.write("DB size (bytes):", db_path.stat().st_size)
+        save_settings(s)
+        _message_container.success(msg)
+        # relancer la page pour recharger proprement les settings
+        if hasattr(st, "experimental_rerun"):
+            try:
+                st.experimental_rerun()
+            except Exception:
+                # fallback léger : toggle session key
+                st.session_state["_refresh_toggle"] = not st.session_state.get("_refresh_toggle", False)
     except Exception as e:
-        st.write("Impossible de lire la taille du DB:", e)
-
-st.write("JSON path:", str(json_path), "exists:", json_path.exists())
-if json_path.exists():
-    try:
-        st.write("JSON size (bytes):", json_path.stat().st_size)
-    except Exception as e:
-        st.write("Impossible de lire la taille du JSON:", e)
-
-# 4) Si DB existe, lister les tables (sécurisé)
-if db_path.exists():
-    try:
-        import sqlite3
-        conn = sqlite3.connect(str(db_path))
-        cur = conn.cursor()
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = [r[0] for r in cur.fetchall()]
-        st.write("Tables dans DB:", tables)
-        conn.close()
-    except Exception as e:
-        st.write("Erreur lecture schema DB:", e)
+        _message_container.error(f"Erreur lors de la sauvegarde : {e}")
         st.text(traceback.format_exc())
 
-# 5) Appeler load_settings() et afficher résumé
-st.markdown("**Appel load_settings()**")
-try:
-    s = load_settings()
-    st.success("load_settings() exécuté")
-    st.write("Type retourné:", type(s).__name__)
-    if isinstance(s, dict):
-        st.write("Clés racine:", list(s.keys()))
-        st.write("Nombre de régions:", len(s.get("regions", {})))
-        st.write("Types de borne (ex.):", (s.get("types_borne")[:5] if isinstance(s.get("types_borne"), list) else s.get("types_borne")))
+# -----------------------
+# Layout principal
+# -----------------------
+col_left, col_right = st.columns([2, 1])
+
+with col_left:
+    st.header("Régions")
+    df = regions_summary_df(settings)
+    with _regions_table_container:
+        st.dataframe(df, use_container_width=True)
+
+    st.markdown("### Ajouter une région")
+    with st.form("form_add_region", clear_on_submit=True):
+        new_region = st.text_input("Nom de la région", "")
+        new_acro = st.text_input("Acronyme (optionnel)", "")
+        submit_region = st.form_submit_button("Ajouter la région")
+        if submit_region:
+            key = new_region.strip()
+            if not key:
+                st.warning("Le nom de la région ne peut pas être vide.")
+            else:
+                if key in settings.get("regions", {}):
+                    st.warning("Cette région existe déjà.")
+                else:
+                    settings.setdefault("regions", {})[key] = {"acronyme": new_acro.strip(), "lieux": []}
+                    safe_save_and_rerun(settings, f"Région '{key}' ajoutée.")
+
+    st.markdown("### Gérer une région existante")
+    regions_list = list(settings.get("regions", {}).keys())
+    if not regions_list:
+        st.info("Aucune région définie pour le moment.")
     else:
-        st.warning("load_settings() ne renvoie pas un dict")
-except Exception as e:
-    st.error("load_settings() a levé une exception: " + str(e))
-    st.text(traceback.format_exc())
-    st.stop()
+        with _select_region_container:
+            sel_region = st.selectbox("Sélectionner une région", [""] + regions_list, key="select_region_main")
+        if sel_region:
+            meta = settings["regions"].get(sel_region, {"acronyme": "", "lieux": []})
+            st.subheader(f"Édition : {sel_region}")
+            col_a, col_b = st.columns([2, 1])
+            with col_a:
+                new_name = st.text_input("Renommer la région", sel_region, key=f"rename_{sel_region}")
+                new_acro = st.text_input("Acronyme", meta.get("acronyme", ""), key=f"acro_{sel_region}")
+            with col_b:
+                if st.button("Renommer / Mettre à jour", key=f"update_region_{sel_region}"):
+                    new_name = new_name.strip()
+                    if not new_name:
+                        st.warning("Le nom ne peut pas être vide.")
+                    else:
+                        # rename if changed
+                        if new_name != sel_region:
+                            if new_name in settings["regions"]:
+                                st.warning("Une région avec ce nom existe déjà.")
+                            else:
+                                settings["regions"][new_name] = settings["regions"].pop(sel_region)
+                                sel_region = new_name
+                        settings["regions"][sel_region]["acronyme"] = new_acro.strip()
+                        safe_save_and_rerun(settings, "Région mise à jour.")
 
-st.info("DEBUG DIAGNOSTIC terminé — copie ici tout ce qui s'affiche.")
-# Fin DEBUG DIAGNOSTIC
+            st.markdown("#### Supprimer la région")
+            if st.button("Supprimer cette région", key=f"del_region_{sel_region}"):
+                confirm = st.checkbox(f"Confirmer la suppression de la région '{sel_region}'", key=f"confirm_del_{sel_region}")
+                if confirm:
+                    settings["regions"].pop(sel_region, None)
+                    safe_save_and_rerun(settings, f"Région '{sel_region}' supprimée.")
 
+with col_right:
+    st.header("Types de borne")
+    tb = settings.get("types_borne", [])
+    with _types_container:
+        if isinstance(tb, list) and tb:
+            for t in tb:
+                st.write("- ", t if isinstance(t, str) else (t.get("label") or str(t)))
+        else:
+            st.info("Aucun type défini")
 
-# utils/settings_loader.py
-import sqlite3
-import json
-from pathlib import Path
-from typing import Dict, Any
-
-ROOT_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT_DIR / "data"
-DB_PATH = DATA_DIR / "settings.db"
-
-DEFAULT_SETTINGS = {"regions": {}, "types_borne": []}
-
-def _ensure_data_dir():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-def _get_conn():
-    _ensure_data_dir()
-    # create DB file if missing; connect normally
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.execute("PRAGMA foreign_keys = ON;")
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def _init_schema_if_missing():
-    """
-    Create the minimal schema if tables do not exist.
-    Safe to call repeatedly.
-    """
-    _ensure_data_dir()
-    # If DB file doesn't exist, connecting will create it; ensure tables exist
-    conn = _get_conn()
-    try:
-        conn.executescript("""
-        PRAGMA foreign_keys = ON;
-        CREATE TABLE IF NOT EXISTS regions (
-          acronym TEXT PRIMARY KEY,
-          long_name TEXT NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS places (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          region_acronym TEXT NOT NULL,
-          address TEXT,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY(region_acronym) REFERENCES regions(acronym) ON DELETE RESTRICT
-        );
-        CREATE TABLE IF NOT EXISTS charger_types (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          code TEXT UNIQUE NOT NULL,
-          label TEXT NOT NULL,
-          specs TEXT,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        """)
-    finally:
-        conn.close()
-
-def load_settings() -> Dict[str, Any]:
-    """
-    Retourne {"regions": {...}, "types_borne": [...]}
-    - regions: clé = long_name (ou acronym si pas de long_name), valeur = {"acronyme":..., "lieux":[...]}
-    - types_borne: liste d'objets {"code","label","specs"} (ou liste de strings si tu préfères)
-    """
-    _init_schema_if_missing()
-    conn = _get_conn()
-    cur = conn.cursor()
-
-    # regions
-    cur.execute("SELECT acronym, long_name FROM regions")
-    regs = {}
-    for row in cur.fetchall():
-        long_name = row["long_name"] or row["acronym"]
-        regs[long_name] = {"acronyme": row["acronym"], "lieux": []}
-
-    # places -> attach to regions by acronym (try to find matching long_name)
-    cur.execute("SELECT name, region_acronym FROM places")
-    for row in cur.fetchall():
-        ra = row["region_acronym"]
-        # find region key by matching acronym
-        found = None
-        for k, v in regs.items():
-            if v.get("acronyme") == ra:
-                found = k
-                break
-        if not found:
-            # fallback: use acronym as key
-            found = ra
-            regs.setdefault(found, {"acronyme": ra, "lieux": []})
-        regs[found]["lieux"].append(row["name"])
-
-    # charger types
-    cur.execute("SELECT code, label, specs FROM charger_types")
-    types = []
-    for row in cur.fetchall():
-        try:
-            specs = json.loads(row["specs"]) if row["specs"] else {}
-        except Exception:
-            specs = {}
-        types.append({"code": row["code"], "label": row["label"], "specs": specs})
-
-    conn.close()
-    return {"regions": regs, "types_borne": types}
-
-def save_settings(settings: Dict[str, Any]) -> None:
-    """
-    Écrase le contenu de la DB à partir du dict settings.
-    Utilise une transaction pour garantir l'atomicité.
-    """
-    _init_schema_if_missing()
-    conn = _get_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute("BEGIN")
-        # clear tables
-        cur.execute("DELETE FROM places")
-        cur.execute("DELETE FROM regions")
-        cur.execute("DELETE FROM charger_types")
-
-        # insert regions and places
-        for region_key, meta in (settings.get("regions") or {}).items():
-            # meta peut être dict ou autre ; normaliser
-            if isinstance(meta, dict):
-                acr = meta.get("acronyme") or region_key
-                lieux = meta.get("lieux") or []
+    st.markdown("### Ajouter un type de borne")
+    with st.form("form_add_type", clear_on_submit=True):
+        new_type = st.text_input("Nom du type (ex: AC 22kW)", "")
+        submit_type = st.form_submit_button("Ajouter le type")
+        if submit_type:
+            nt = new_type.strip()
+            if not nt:
+                st.warning("Le nom du type ne peut pas être vide.")
             else:
-                acr = str(meta) if meta else region_key
-                lieux = []
-            long_name = region_key
-            cur.execute(
-                "INSERT INTO regions(acronym,long_name) VALUES(?,?)",
-                (acr, long_name)
-            )
-            for lieu in (lieux or []):
-                cur.execute(
-                    "INSERT INTO places(name,region_acronym,address) VALUES(?,?,?)",
-                    (str(lieu), acr, "")
-                )
+                settings.setdefault("types_borne", [])
+                exists = any((nt == (t if isinstance(t, str) else t.get("label"))) for t in settings["types_borne"])
+                if exists:
+                    st.warning("Ce type existe déjà.")
+                else:
+                    settings["types_borne"].append(nt)
+                    safe_save_and_rerun(settings, f"Type '{nt}' ajouté.")
 
-        # insert charger types
-        for t in settings.get("types_borne", []) or []:
-            if isinstance(t, str):
-                code = t
-                label = t
-                specs = {}
-            elif isinstance(t, dict):
-                code = t.get("code") or t.get("label") or ""
-                label = t.get("label") or code
-                specs = t.get("specs") or {}
+    st.markdown("### Supprimer un type de borne")
+    if settings.get("types_borne"):
+        options = [(t if isinstance(t, str) else t.get("label")) for t in settings["types_borne"]]
+        rem = st.multiselect("Sélectionner les types à supprimer", options=options, key="multisel_types")
+        if st.button("Supprimer les types sélectionnés"):
+            if rem:
+                settings["types_borne"] = [t for t in settings["types_borne"] if (t if isinstance(t, str) else t.get("label")) not in rem]
+                safe_save_and_rerun(settings, f"{len(rem)} type(s) supprimé(s).")
             else:
-                # ignore unknown formats
-                continue
-            cur.execute(
-                "INSERT INTO charger_types(code,label,specs) VALUES(?,?,?)",
-                (code, label, json.dumps(specs))
-            )
+                st.warning("Aucun type sélectionné.")
 
-        cur.execute("COMMIT")
-    except Exception:
-        cur.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
+# -----------------------
+# Section Lieux (affichage et gestion par région)
+# -----------------------
+st.markdown("---")
+st.header("Lieux (par région)")
+regions_list = list(settings.get("regions", {}).keys())
+if not regions_list:
+    st.info("Aucune région définie. Créez d'abord une région.")
+else:
+    with _lieux_container:
+        sel_region_lieux = st.selectbox("Choisir une région", [""] + regions_list, key="select_lieux_region")
+        if sel_region_lieux:
+            st.subheader(f"Lieux pour {sel_region_lieux}")
+            lieux = settings["regions"].get(sel_region_lieux, {}).get("lieux", [])
+            if lieux:
+                for l in lieux:
+                    st.write("- ", l)
+            else:
+                st.info("Aucun lieu pour cette région.")
+
+            st.markdown("### Ajouter un lieu")
+            with st.form(f"form_add_lieu_{sel_region_lieux}", clear_on_submit=True):
+                new_lieu = st.text_input("Nom du lieu", "")
+                submit_lieu = st.form_submit_button("Ajouter le lieu")
+                if submit_lieu:
+                    nl = new_lieu.strip()
+                    if not nl:
+                        st.warning("Le nom du lieu ne peut pas être vide.")
+                    else:
+                        if nl in settings["regions"][sel_region_lieux]["lieux"]:
+                            st.warning("Ce lieu existe déjà pour la région.")
+                        else:
+                            settings["regions"][sel_region_lieux]["lieux"].append(nl)
+                            safe_save_and_rerun(settings, f"Lieu '{nl}' ajouté à {sel_region_lieux}.")
+
+            st.markdown("### Supprimer des lieux")
+            lieux = settings["regions"][sel_region_lieux].get("lieux", [])
+            if lieux:
+                to_remove = st.multiselect("Sélectionner les lieux à supprimer", options=lieux, key=f"multisel_{sel_region_lieux}")
+                if st.button("Supprimer les lieux sélectionnés"):
+                    if to_remove:
+                        settings["regions"][sel_region_lieux]["lieux"] = [l for l in lieux if l not in to_remove]
+                        safe_save_and_rerun(settings, f"{len(to_remove)} lieu(x) supprimé(s).")
+                    else:
+                        st.warning("Aucun lieu sélectionné.")
+
+# -----------------------
+# Debug / état rapide
+# -----------------------
+st.markdown("---")
+st.write("Debug rapide: nombre de régions =", len(settings.get("regions", {})), " | types =", len(settings.get("types_borne", [])))

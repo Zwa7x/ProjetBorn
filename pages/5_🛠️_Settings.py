@@ -1,3 +1,15 @@
+# debug_top.py — coller au tout début de pages/5_🛠️_Settings.py
+import streamlit as st, traceback
+try:
+    # import original (laisse tel quel si tu veux tester l'import depuis utils)
+    from utils import load_settings, save_settings
+except Exception as e:
+    st.error("Erreur d'import utils : " + str(e))
+    st.text(traceback.format_exc())
+    # stoppe l'exécution pour éviter comportements étranges
+    st.stop()
+
+
 # utils/settings_loader.py  -- SQLite version
 import sqlite3
 import json

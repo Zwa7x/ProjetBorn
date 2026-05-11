@@ -1,24 +1,28 @@
 # utils/__init__.py
-# Expose les fonctions publiques du package utils
+"""
+Exports publics du package utils.
+Les fonctions sont importées à la demande pour éviter les import-circulaires
+et pour que l'import du package ne casse pas si un module lève une erreur.
+"""
 
-# Importer explicitement les fonctions depuis leurs modules respectifs.
-# Ajuste les noms de modules si tu utilises d'autres fichiers (ex: data_loader.py).
-try:
-    from .settings_loader import load_settings, save_settings
-except Exception:
-    # fallback silencieux pour debug ; l'erreur sera visible si on tente d'utiliser la fonction
-    load_settings = None
-    save_settings = None
+import importlib
+from typing import Any
 
-try:
-    from .data_loader import load_data, save_data
-except Exception:
-    load_data = None
-    save_data = None
+__all__ = ["load_settings", "save_settings", "load_data", "save_data"]
 
-__all__ = [
-    "load_settings",
-    "save_settings",
-    "load_data",
-    "save_data",
-]
+# wrappers lazy : importent le module au moment de l'appel
+def load_settings(*args, **kwargs) -> Any:
+    mod = importlib.import_module(".settings_loader", __package__)
+    return getattr(mod, "load_settings")(*args, **kwargs)
+
+def save_settings(*args, **kwargs) -> Any:
+    mod = importlib.import_module(".settings_loader", __package__)
+    return getattr(mod, "save_settings")(*args, **kwargs)
+
+def load_data(*args, **kwargs) -> Any:
+    mod = importlib.import_module(".data_loader", __package__)
+    return getattr(mod, "load_data")(*args, **kwargs)
+
+def save_data(*args, **kwargs) -> Any:
+    mod = importlib.import_module(".data_loader", __package__)
+    return getattr(mod, "save_data")(*args, **kwargs)

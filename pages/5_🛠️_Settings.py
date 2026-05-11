@@ -1,13 +1,30 @@
-# debug_top.py — coller au tout début de pages/5_🛠️_Settings.py
+# DEBUG: afficher import et contenu de settings
 import streamlit as st, traceback
+st.markdown("### DEBUG: vérification import & load_settings")
 try:
-    # import original (laisse tel quel si tu veux tester l'import depuis utils)
     from utils import load_settings, save_settings
+    st.success("Import utils OK")
 except Exception as e:
     st.error("Erreur d'import utils : " + str(e))
     st.text(traceback.format_exc())
-    # stoppe l'exécution pour éviter comportements étranges
     st.stop()
+
+try:
+    s = load_settings()
+    st.write("Type retourné par load_settings():", type(s).__name__)
+    # affiche seulement un résumé pour éviter surcharge
+    if isinstance(s, dict):
+        st.write("Clés racine:", list(s.keys()))
+        st.write("Nombre de régions:", len(s.get("regions", {})))
+        st.write("Types de borne (exemple):", (s.get("types_borne")[:5] if isinstance(s.get("types_borne"), list) else s.get("types_borne")))
+    else:
+        st.warning("load_settings() ne renvoie pas un dict.")
+    st.success("load_settings() exécuté sans lever d'exception")
+except Exception as e:
+    st.error("load_settings a levé une exception : " + str(e))
+    st.text(traceback.format_exc())
+    st.stop()
+
 
 
 # utils/settings_loader.py  -- SQLite version

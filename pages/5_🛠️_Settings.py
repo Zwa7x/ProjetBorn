@@ -18,17 +18,19 @@ st.markdown(
     div[data-testid="stDataFrameContainer"] table td:first-child,
     .stDataFrame table th:first-child,
     .stDataFrame table td:first-child {
-        width: 48px !important;
-        max-width: 48px !important;
+        width: 44px !important;
+        max-width: 44px !important;
         text-align: center;
-        padding-left: 6px !important;
-        padding-right: 6px !important;
+        padding-left: 4px !important;
+        padding-right: 4px !important;
     }
-    /* titre d'édition plus discret */
+    /* menu horizontal compact (sous le tableau) */
+    .ctx-menu { display:flex; gap:8px; justify-content:flex-end; margin-top:8px; margin-bottom:8px; }
+    .ctx-menu > div { display:inline-block; }
+    /* indentation du bloc d'édition rapide */
+    .edit-block { margin-left: 24px; padding-left: 8px; border-left: 2px solid rgba(0,0,0,0.04); }
+    /* titre d'édition discret */
     .small-edit-title { font-size: 0.95rem; margin-bottom: 0.25rem; color: #111827; }
-    /* menu contextuel horizontal et compact */
-    .top-right-menu { display:flex; justify-content:flex-end; gap:8px; align-items:center; }
-    .top-right-menu button { margin:0 2px; }
     </style>
     """,
     unsafe_allow_html=True,

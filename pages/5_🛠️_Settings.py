@@ -8,6 +8,46 @@ st.set_page_config(page_title="⚙️ Paramètres", layout="wide")
 st.title("⚙️ Paramètres de l'application")
 
 # -----------------------
+# Petit CSS pour ajustements visuels
+# -----------------------
+st.markdown(
+    """
+    <style>
+    /* réduire la largeur de la première colonne (case Supprimer) dans les tableaux */
+    .stDataFrame table th:first-child,
+    .stDataFrame table td:first-child,
+    .streamlit-expanderContent table th:first-child,
+    .streamlit-expanderContent table td:first-child {
+        width: 48px !important;
+        max-width: 48px !important;
+        text-align: center;
+    }
+    /* si data_editor génère une table différente */
+    div[data-testid="stDataFrameContainer"] table th:first-child,
+    div[data-testid="stDataFrameContainer"] table td:first-child {
+        width: 48px !important;
+        max-width: 48px !important;
+        text-align: center;
+    }
+    /* réduire la police du titre d'édition rapide */
+    .small-edit-title {
+        font-size: 0.95rem;
+        margin-bottom: 0.25rem;
+        color: #111827;
+    }
+    /* bouton menu contextuel aligné à droite */
+    .top-right-menu {
+        display:flex;
+        justify-content:flex-end;
+        gap:8px;
+        margin-bottom:8px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# -----------------------
 # Chargement sûr des settings
 # -----------------------
 try:
@@ -82,35 +122,67 @@ if "regions_df" not in st.session_state:
     st.session_state["regions_df"] = settings_to_regions_df(settings)
 
 # -----------------------
+# Menu contextuel en haut à droite (Ajouter / Supprimer / Appliquer / Annuler)
+# -----------------------
+# On crée une ligne avec un espace à gauche et le menu à droite
+left, right = st.columns([3, 1])
+with right:
+    st.markdown('<div class="top-right-menu">', unsafe_allow_html=True)
+    add_row = st.button("➕ Ajouter ligne", key="ctx_add_row")
+    del_selected = st.button("🗑️ Suppr. sélection", key="ctx_del_sel")
+    apply_table = st.button("✅ Appliquer", key="ctx_apply")
+    cancel_table = st.button("↺ Annuler", key="ctx_cancel")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# Actions du menu contextuel
+if add_row:
+    df = st.session_state.get("regions_df", pd.DataFrame(columns=["Supprimer", "Région", "Acronyme", "Lieux (séparés par ,)"]))
+    new_row = pd.DataFrame([{"Supprimer": False, "Région": "", "Acronyme": "", "Lieux (séparés par ,)": ""}])
+    st.session_state["regions_df"] = pd.concat([df, new_row], ignore_index=True)
+    if hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
+
+if del_selected:
+    # supprime les lignes cochées Supprimer dans le DataFrame
+    df = st.session_state.get("regions_df", pd.DataFrame())
+    if "Supprimer" in df.columns:
+        try:
+            df["Supprimer"] = df["Supprimer"].astype(bool)
+            if df["Supprimer"].any():
+                df = df[~df["Supprimer"]].reset_index(drop=True)
+                st.session_state["regions_df"] = df
+                if hasattr(st, "experimental_rerun"):
+                    st.experimental_rerun()
+            else:
+                st.warning("Aucune ligne cochée pour suppression.")
+        except Exception:
+            st.warning("Impossible d'interpréter la colonne Supprimer.")
+    else:
+        st.warning("Aucune colonne Supprimer trouvée.")
+
+if apply_table:
+    try:
+        df = st.session_state.get("regions_df", pd.DataFrame())
+        if "Supprimer" in df.columns:
+            df["Supprimer"] = df["Supprimer"].astype(bool)
+        new_regions = df_to_settings_regions(df, settings)
+        settings["regions"] = new_regions
+        safe_save_and_rerun(settings, "Modifications des régions appliquées.")
+    except Exception as e:
+        st.error("Erreur lors de l'application : " + str(e))
+        st.text(traceback.format_exc())
+
+if cancel_table:
+    if hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
+    else:
+        st.session_state["_refresh_toggle"] = not st.session_state.get("_refresh_toggle", False)
+
+# -----------------------
 # Top: tableau récapitulatif éditable (Regions) avec colonne Supprimer
 # -----------------------
 st.markdown("## Récapitulatif des régions")
 st.markdown("Édite directement les cellules. **Région** est la clé principale. Coche **Supprimer** pour retirer une ligne puis cliquez sur **Appliquer**.")
-
-# actions au-dessus du tableau
-col_add, col_del, col_apply, col_cancel = st.columns([1,1,1,1])
-
-with col_add:
-    if st.button("Ajouter une ligne", key="btn_add_row"):
-        df = st.session_state.get("regions_df", pd.DataFrame(columns=["Supprimer", "Région", "Acronyme", "Lieux (séparés par ,)"]))
-        new_row = pd.DataFrame([{"Supprimer": False, "Région": "", "Acronyme": "", "Lieux (séparés par ,)": ""}])
-        st.session_state["regions_df"] = pd.concat([df, new_row], ignore_index=True)
-        if hasattr(st, "experimental_rerun"):
-            st.experimental_rerun()
-
-with col_del:
-    # suppression par sélection de noms (optionnel)
-    current_names = [str(x) for x in st.session_state.get("regions_df", pd.DataFrame()).get("Région", []).tolist() if str(x).strip()]
-    to_delete = st.multiselect("Supprimer lignes (sélection)", options=current_names, key="multisel_del_rows")
-    if st.button("Supprimer sélection", key="btn_del_selected"):
-        if to_delete:
-            df = st.session_state.get("regions_df", pd.DataFrame())
-            df = df[~df["Région"].isin(to_delete)].reset_index(drop=True)
-            st.session_state["regions_df"] = df
-            if hasattr(st, "experimental_rerun"):
-                st.experimental_rerun()
-        else:
-            st.warning("Aucune ligne sélectionnée pour suppression.")
 
 # Affichage éditable (data_editor si dispo)
 data_editor = getattr(st, "data_editor", None) or getattr(st, "experimental_data_editor", None)
@@ -127,34 +199,12 @@ else:
     st.warning("Édition inline non disponible dans cette version de Streamlit.")
     st.dataframe(st.session_state["regions_df"], use_container_width=True)
 
-with col_apply:
-    if st.button("Appliquer les modifications du tableau", key="btn_apply_table"):
-        try:
-            # d'abord supprimer les lignes cochées Supprimer
-            df = st.session_state.get("regions_df", pd.DataFrame())
-            # convertir Supprimer en bool si nécessaire
-            if "Supprimer" in df.columns:
-                df["Supprimer"] = df["Supprimer"].astype(bool)
-            new_regions = df_to_settings_regions(df, settings)
-            settings["regions"] = new_regions
-            safe_save_and_rerun(settings, "Modifications des régions appliquées.")
-        except Exception as e:
-            st.error("Erreur lors de l'application : " + str(e))
-            st.text(traceback.format_exc())
-
-with col_cancel:
-    if st.button("Annuler (recharger)", key="btn_cancel_table"):
-        if hasattr(st, "experimental_rerun"):
-            st.experimental_rerun()
-        else:
-            st.session_state["_refresh_toggle"] = not st.session_state.get("_refresh_toggle", False)
-
 st.markdown("---")
 
 # -----------------------
-# Bloc d'édition sous le tableau (options d'édition pour la région sélectionnée)
+# Bloc d'édition sous le tableau (titre plus discret)
 # -----------------------
-st.markdown("## Édition rapide d'une région (sous le tableau)")
+st.markdown('<div class="small-edit-title"><strong>Édition rapide d\'une région</strong></div>', unsafe_allow_html=True)
 regions_list = sorted(list(settings.get("regions", {}).keys()))
 if not regions_list:
     st.info("Aucune région définie. Ajoute d'abord une région dans le tableau ci‑dessus.")
@@ -174,19 +224,15 @@ else:
                     if not nm:
                         st.warning("Le nom de la région ne peut pas être vide.")
                     else:
-                        # gérer renommage : si le nom change et existe déjà -> erreur
                         if nm != sel and nm in settings.get("regions", {}):
                             st.warning("Une région avec ce nom existe déjà.")
                         else:
-                            # appliquer changements
                             lieux_list = [l.strip() for l in new_lieux.split(",") if l.strip()]
-                            # si renommage
                             if nm != sel:
                                 settings["regions"][nm] = settings["regions"].pop(sel)
                                 sel = nm
                             settings["regions"][sel]["acronyme"] = new_acro.strip()
                             settings["regions"][sel]["lieux"] = lieux_list
-                            # mettre à jour le DataFrame en session pour refléter le changement
                             st.session_state["regions_df"] = settings_to_regions_df(settings)
                             safe_save_and_rerun(settings, f"Région '{sel}' mise à jour.")
             with col_delete:

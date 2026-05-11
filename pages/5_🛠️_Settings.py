@@ -1,3 +1,117 @@
+# DEBUG DIAGNOSTIC — coller en tout début de pages/5_🛠️_Settings.py
+import streamlit as st, traceback, ast, pathlib, sys, importlib
+from pathlib import Path
+
+st.set_page_config(page_title="DEBUG DIAGNOSTIC", layout="wide")
+st.title("DEBUG DIAGNOSTIC — Vérification import / DB / settings")
+
+p = Path(__file__).resolve()
+st.write("Fichier page :", str(p))
+# 1) Vérifier la syntaxe du fichier page
+try:
+    code = p.read_text(encoding="utf-8")
+    try:
+        ast.parse(code, filename=str(p))
+        st.success("AST parse OK pour la page")
+    except SyntaxError as se:
+        st.error(f"SyntaxError dans la page: {se.msg} (ligne {se.lineno}, col {se.offset})")
+        st.code(se.text or "", language="python")
+        lines = code.splitlines()
+        start = max(0, (se.lineno or 1) - 4)
+        end = min(len(lines), (se.lineno or 1) + 2)
+        excerpt = "\n".join(f"{i+1:4d}: {lines[i]}" for i in range(start, end))
+        st.code(excerpt, language="python")
+        st.stop()
+except Exception as e:
+    st.error("Impossible de lire/parse la page: " + str(e))
+    st.text(traceback.format_exc())
+    st.stop()
+
+# 2) Tester l'import de utils et du loader
+st.markdown("**Import utils / settings_loader**")
+try:
+    import utils
+    st.success("Module utils importé")
+except Exception as e:
+    st.error("Erreur import utils: " + str(e))
+    st.text(traceback.format_exc())
+    st.stop()
+
+try:
+    # forcer le rechargement pour éviter cache stale
+    import importlib
+    importlib.reload(utils)
+    from utils import load_settings, save_settings
+    st.success("load_settings et save_settings importés depuis utils")
+except Exception as e:
+    st.error("Erreur import load_settings/save_settings: " + str(e))
+    st.text(traceback.format_exc())
+    # tenter import direct du module
+    try:
+        import utils.settings_loader as sl
+        importlib.reload(sl)
+        st.write("Import direct utils.settings_loader OK")
+    except Exception as e2:
+        st.error("Erreur import direct utils.settings_loader: " + str(e2))
+        st.text(traceback.format_exc())
+    st.stop()
+
+# 3) Vérifier existence et permissions du fichier DB / JSON
+ROOT = Path(__file__).resolve().parent.parent
+data_dir = ROOT / "data"
+db_path = data_dir / "settings.db"
+json_path = data_dir / "settings.json"
+
+st.write("Data dir:", str(data_dir))
+st.write("DB path:", str(db_path), "exists:", db_path.exists())
+if db_path.exists():
+    try:
+        st.write("DB size (bytes):", db_path.stat().st_size)
+    except Exception as e:
+        st.write("Impossible de lire la taille du DB:", e)
+
+st.write("JSON path:", str(json_path), "exists:", json_path.exists())
+if json_path.exists():
+    try:
+        st.write("JSON size (bytes):", json_path.stat().st_size)
+    except Exception as e:
+        st.write("Impossible de lire la taille du JSON:", e)
+
+# 4) Si DB existe, lister les tables (sécurisé)
+if db_path.exists():
+    try:
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [r[0] for r in cur.fetchall()]
+        st.write("Tables dans DB:", tables)
+        conn.close()
+    except Exception as e:
+        st.write("Erreur lecture schema DB:", e)
+        st.text(traceback.format_exc())
+
+# 5) Appeler load_settings() et afficher résumé
+st.markdown("**Appel load_settings()**")
+try:
+    s = load_settings()
+    st.success("load_settings() exécuté")
+    st.write("Type retourné:", type(s).__name__)
+    if isinstance(s, dict):
+        st.write("Clés racine:", list(s.keys()))
+        st.write("Nombre de régions:", len(s.get("regions", {})))
+        st.write("Types de borne (ex.):", (s.get("types_borne")[:5] if isinstance(s.get("types_borne"), list) else s.get("types_borne")))
+    else:
+        st.warning("load_settings() ne renvoie pas un dict")
+except Exception as e:
+    st.error("load_settings() a levé une exception: " + str(e))
+    st.text(traceback.format_exc())
+    st.stop()
+
+st.info("DEBUG DIAGNOSTIC terminé — copie ici tout ce qui s'affiche.")
+# Fin DEBUG DIAGNOSTIC
+
+
 # utils/settings_loader.py
 import sqlite3
 import json

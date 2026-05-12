@@ -137,20 +137,67 @@ def ensure_db_exists():
         conn = _connect()
         conn.close()
 
-def save_table(table_name: str, df: pd.DataFrame, mode: str = "replace"):
+def save_table_upsert(table_name: str, df: pd.DataFrame, mode: str = "upsert"):
     """
-    Sauvegarde un DataFrame dans la table SQLite correspondante.
+    Upsert d'un DataFrame dans la table SQLite correspondante.
     - table_name : nom logique (ex: "mesures" ou "regions") ou nom interne "sheet_xxx"
-    - mode : "replace" (par défaut) ou "append"
+    - mode : "upsert" (par défaut) ou "replace"
+    Comportement upsert :
+      - calcule _row_hash pour chaque ligne
+      - n'insère que les lignes dont le hash n'existe pas encore
+      - ne supprime pas les lignes existantes (pour gérer les suppressions, voir snapshot)
     """
+    # préparation du nom interne
     table = table_name if table_name.startswith("sheet_") else _prepare_table_name(table_name)
+
+    # normaliser colonnes comme lors de l'ingestion (optionnel mais recommandé)
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    df.columns = ["".join(ch if ch.isalnum() or ch == '_' else '_' for ch in str(c)).lower() for c in df.columns]
+
+    # calculer _row_hash si absent
+    if "_row_hash" not in df.columns:
+        df["_row_hash"] = df.apply(_row_hash, axis=1)
+
     conn = _connect()
     try:
+        cur = conn.cursor()
+        # créer la table si elle n'existe pas (colonnes TEXT + _row_hash unique)
+        # on crée une table simple basée sur les colonnes du df (sauf id)
+        cols_sql = ", ".join([f"'{c}' TEXT" for c in df.columns if c != "_row_hash"])
+        create_sql = f"""
+            CREATE TABLE IF NOT EXISTS '{table}' (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                {cols_sql},
+                _row_hash TEXT,
+                UNIQUE(_row_hash)
+            );
+        """
+        cur.execute(create_sql)
+        conn.commit()
+
         if mode == "replace":
-            # supprimer et recréer via pandas.to_sql
-            df.to_sql(table, conn, if_exists="replace", index=False)
-        else:
+            # remplacer la table entière
+            cur.execute(f"DELETE FROM '{table}'")
+            conn.commit()
+            # insérer tout
             df.to_sql(table, conn, if_exists="append", index=False)
+            conn.commit()
+            return {"inserted": len(df), "skipped": 0}
+
+        # récupérer hashes existants
+        cur.execute(f"SELECT _row_hash FROM '{table}'")
+        existing_hashes = set(r[0] for r in cur.fetchall() if r[0] is not None)
+
+        # sélectionner nouvelles lignes
+        new_rows = df[~df["_row_hash"].isin(existing_hashes)].copy()
+        if new_rows.empty:
+            return {"inserted": 0, "skipped": len(df)}
+
+        # insérer nouvelles lignes
+        new_rows.to_sql(table, conn, if_exists="append", index=False)
+        conn.commit()
+        return {"inserted": len(new_rows), "skipped": len(df) - len(new_rows)}
     finally:
         conn.close()
 

@@ -1,10 +1,10 @@
 import streamlit as st
-from utils.data_loader import ingest_excel, load_table, load_all, save_table_upsert
+from utils.data_loader import ingest_excel, load_table, load_all, save_table_upsert, _connect
 
 st.set_page_config(page_title="Gestion des données", layout="wide")
 st.title("📁 Gestion des données")
 
-# --- Upload et ingestion (action utilisateur) ---
+# --- extrait à coller dans pages/3_🗂️_Données.py (remplace la section ingestion) ---
 st.subheader("Importer CONSO_CUPRA.xlsx")
 uploaded = st.file_uploader("Importer CONSO_CUPRA.xlsx", type=["xlsx"])
 if uploaded:
@@ -13,11 +13,28 @@ if uploaded:
         f.write(uploaded.getbuffer())
     if st.button("Ingest Excel (upsert)"):
         try:
-            ingest_excel(tmp, mode="upsert")
+            res = ingest_excel(tmp, mode="upsert")
             st.success("Ingestion terminée")
-            st.info("Cliquez sur le bouton Recharger ci‑dessous pour actualiser l'affichage.")
+            st.subheader("Résumé d'ingestion")
+            st.json(res)
+            st.info("L'historique des imports est enregistré dans la table imports_log.")
         except Exception as e:
             st.error(f"Erreur d'ingestion: {e}")
+
+# bouton pour afficher l'historique des imports
+if st.checkbox("Afficher l'historique des imports (imports_log)"):
+    try:
+        # lecture simple de la table imports_log
+        conn = _connect()
+        df_log = pd.read_sql_query('SELECT * FROM "imports_log" ORDER BY import_id DESC LIMIT 100', conn)
+        conn.close()
+        if df_log.empty:
+            st.info("Aucun import enregistré.")
+        else:
+            st.dataframe(df_log)
+    except Exception as e:
+        st.error(f"Impossible de lire imports_log: {e}")
+
 
 # bouton de rechargement sûr (fallback si experimental_rerun absent)
 def safe_rerun():

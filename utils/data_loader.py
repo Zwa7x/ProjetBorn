@@ -20,28 +20,61 @@ def _row_hash(row: pd.Series) -> str:
 def _prepare_table_name(sheet_name: str) -> str:
     return "sheet_" + "".join(c if c.isalnum() else "_" for c in sheet_name).lower()
 
-def ingest_excel(excel_path: str, mapping: Optional[Dict[str, Dict[str, str]]] = None, sheets: Optional[list] = None, mode: str = "upsert"):
+# --- remplacer ou coller cette version de ingest_excel dans utils/data_loader.py ---
+import datetime
+
+def ingest_excel(excel_path: str,
+                 mapping: Optional[Dict[str, Dict[str, str]]] = None,
+                 sheets: Optional[list] = None,
+                 mode: str = "upsert"):
+    """
+    Ingest Excel into SQLite and log the import.
+    Returns a summary dict: { sheet_name: {rows_total, inserted}, ... }
+    Also writes one row per sheet into imports_log(import_id, source_file, ts, sheet_name, rows_total, inserted).
+    """
     excel_path = Path(excel_path)
     if not excel_path.exists():
         raise FileNotFoundError(f"{excel_path} not found")
+
     xls = pd.read_excel(excel_path, sheet_name=None, dtype=str)
     to_process = sheets or list(xls.keys())
+
     conn = _connect()
+    summary = {}
     try:
+        # ensure imports_log exists
+        cur = conn.cursor()
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS imports_log (
+                import_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_file TEXT,
+                ts TEXT,
+                sheet_name TEXT,
+                rows_total INTEGER,
+                inserted INTEGER
+            );
+        ''')
+        conn.commit()
+
         for sheet in to_process:
             if sheet not in xls:
                 continue
             df = xls[sheet].copy()
             if mapping and sheet in mapping:
                 df = df.rename(columns=mapping[sheet])
+
+            # normalize column names
             df.columns = [str(c).strip() for c in df.columns]
             df.columns = ["".join(ch if ch.isalnum() or ch=='_' else '_' for ch in str(c)).lower() for c in df.columns]
+
             table = _prepare_table_name(sheet)
             df["_row_hash"] = df.apply(_row_hash, axis=1)
-            cur = conn.cursor()
+
+            # create table if needed
             if mode == "replace":
                 cur.execute(f'DROP TABLE IF EXISTS "{table}"')
                 conn.commit()
+
             cols_sql = ", ".join([f"'{c}' TEXT" for c in df.columns if c != "_row_hash"])
             create_sql = f'''
                 CREATE TABLE IF NOT EXISTS "{table}" (
@@ -53,17 +86,37 @@ def ingest_excel(excel_path: str, mapping: Optional[Dict[str, Dict[str, str]]] =
             '''
             cur.execute(create_sql)
             conn.commit()
+
+            inserted = 0
             if mode == "replace":
+                # replace entire table
                 df.to_sql(table, conn, if_exists="append", index=False)
+                inserted = len(df)
             else:
+                # upsert by _row_hash: insert only new hashes
                 cur.execute(f'SELECT _row_hash FROM "{table}"')
-                existing_hashes = set(r[0] for r in cur.fetchall())
+                existing_hashes = set(r[0] for r in cur.fetchall() if r[0] is not None)
                 new_rows = df[~df["_row_hash"].isin(existing_hashes)].copy()
                 if not new_rows.empty:
                     new_rows.to_sql(table, conn, if_exists="append", index=False)
+                    inserted = len(new_rows)
             conn.commit()
+
+            # log per sheet
+            rows_total = len(df)
+            ts = datetime.datetime.utcnow().isoformat() + "Z"
+            cur.execute(
+                "INSERT INTO imports_log (source_file, ts, sheet_name, rows_total, inserted) VALUES (?, ?, ?, ?, ?)",
+                (str(excel_path.name), ts, sheet, rows_total, inserted)
+            )
+            conn.commit()
+
+            summary[sheet] = {"rows_total": rows_total, "inserted": inserted}
+
     finally:
         conn.close()
+
+    return summary
 
 def load_table(table_name: str, limit: Optional[int] = None) -> pd.DataFrame:
     table = table_name if table_name.startswith("sheet_") else _prepare_table_name(table_name)

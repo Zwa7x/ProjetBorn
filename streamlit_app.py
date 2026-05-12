@@ -1,6 +1,14 @@
 import streamlit as st
 from utils import load_data, save_data
 
+from utils.data_loader import load_table, save_table_upsert
+
+df = load_table("mesures")            # charge la table
+# ... édition par l'utilisateur ...
+save_result = save_table_upsert("mesures", edited_df, mode="upsert")
+st.write(save_result)                 # affiche {"inserted": X, "skipped": Y}
+
+
 st.set_page_config(page_title="Suivi de consommation – CUPRA Born", layout="wide")
 
 st.title("Suivi de consommation – CUPRA Born")

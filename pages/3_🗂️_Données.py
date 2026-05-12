@@ -1,10 +1,15 @@
+# pages/3_🗂️_Données.py
 import streamlit as st
-from utils.data_loader import ingest_excel, load_table, load_all, save_table_upsert, _connect
+import pandas as pd
+from utils.data_loader import (
+    ingest_excel, load_table, load_all, save_table_upsert,
+    export_db, import_db, DB_PATH, _connect
+)
 
 st.set_page_config(page_title="Gestion des données", layout="wide")
 st.title("📁 Gestion des données")
 
-# --- extrait à coller dans pages/3_🗂️_Données.py (remplace la section ingestion) ---
+# --- Upload et ingestion (action utilisateur) ---
 st.subheader("Importer CONSO_CUPRA.xlsx")
 uploaded = st.file_uploader("Importer CONSO_CUPRA.xlsx", type=["xlsx"])
 if uploaded:
@@ -21,22 +26,7 @@ if uploaded:
         except Exception as e:
             st.error(f"Erreur d'ingestion: {e}")
 
-# bouton pour afficher l'historique des imports
-if st.checkbox("Afficher l'historique des imports (imports_log)"):
-    try:
-        # lecture simple de la table imports_log
-        conn = _connect()
-        df_log = pd.read_sql_query('SELECT * FROM "imports_log" ORDER BY import_id DESC LIMIT 100', conn)
-        conn.close()
-        if df_log.empty:
-            st.info("Aucun import enregistré.")
-        else:
-            st.dataframe(df_log)
-    except Exception as e:
-        st.error(f"Impossible de lire imports_log: {e}")
-
-
-# bouton de rechargement sûr (fallback si experimental_rerun absent)
+# safe rerun fallback
 def safe_rerun():
     if hasattr(st, "experimental_rerun"):
         try:
@@ -51,7 +41,16 @@ if st.button("🔄 Recharger l'affichage"):
 
 # --- Tables et mapping ---
 st.subheader("Tables importées")
-all_tables = list(load_all().keys())
+all_tables_raw = list(load_all(include_internal=True).keys())
+# Exclure les tables internes SQLite
+all_tables = [t for t in all_tables_raw if not t.startswith("sqlite_")]
+
+if not all_tables:
+    st.warning("Aucune table métier trouvée. Ingestez d'abord le fichier Excel.")
+    with st.expander("Tables internes détectées (debug)"):
+        st.write(all_tables_raw)
+    st.stop()
+
 st.write("Tables détectées :", all_tables)
 
 st.subheader("Mapping informatif (exemple)")
@@ -60,28 +59,32 @@ mapping_example = {
 }
 st.table(mapping_example)
 
-st.subheader("Schéma relationnel (recommandé)")
-st.markdown("""
-- **sheet_feuil1** : id PK; date; region; lieux; debit; temps_en_min; kw; cout; prix_du_kwh; vitesse_kw_min; km_au_compteur; _row_hash
-- Optionnel : séparer `regions` en table `regions(id, region, acronyme)` et référencer via `region_id`.
-""")
+st.subheader("Schéma relationnel (vue graphique)")
+dot = """
+digraph schema {
+  rankdir=LR;
+  node [shape=record, fontsize=10];
 
-# --- Choix de la table à afficher (robuste) ---
-# proposer d'abord des noms logiques, puis les tables détectées
-suggested = ["mesures", "regions", "feuil1"]
-candidates = [t for t in suggested if t in all_tables] + [t for t in all_tables if t not in suggested]
-if not candidates:
-    st.warning("Aucune table trouvée. Ingestez d'abord le fichier Excel.")
-    st.stop()
+  mesures [label="{mesures|id PK\\ldate\\lkw\\lcout\\ltemps_min\\llieu_id FK\\limport_id FK\\l_row_hash\\l}"];
+  lieux   [label="{lieux|id PK\\lnom\\lregion_id FK\\ltype\\llatitude\\llongitude\\l}"];
+  regions [label="{regions|id PK\\lcode\\lnom\\l}"];
+  imports [label="{imports_log|import_id PK\\lsource_file\\lts\\lrows_total\\linserted\\l}"];
 
-table_choice = st.selectbox("Choisir une table à afficher", candidates, index=0)
+  lieux -> regions [label=" region_id "];
+  mesures -> lieux [label=" lieu_id "];
+  mesures -> imports [label=" import_id "];
+}
+"""
+st.graphviz_chart(dot)
 
-# charger la table choisie (fallback : première table si nom non trouvé)
+# --- Choix de la table à afficher ---
+table_choice = st.selectbox("Choisir une table à afficher", all_tables)
+
 try:
     df = load_table(table_choice)
 except Exception as e:
-    st.warning(f"Table '{table_choice}' introuvable, tentative avec la première table détectée.")
-    df = load_table(all_tables[0])
+    st.error(f"Impossible de charger la table: {e}")
+    st.stop()
 
 # --- Tableau éditable ---
 st.subheader("Tableau éditable")
@@ -90,8 +93,51 @@ edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True)
 col1, col2 = st.columns(2)
 with col1:
     if st.button("💾 Enregistrer les modifications"):
-        res = save_table_upsert(table_choice, edited_df, mode="upsert")
-        st.success(f"Sauvegarde terminée : {res}")
+        try:
+            res = save_table_upsert(table_choice, edited_df, mode="upsert")
+            st.success(f"Sauvegarde terminée : {res}")
+        except Exception as e:
+            st.error(f"Erreur sauvegarde: {e}")
 with col2:
     if st.button("🔄 Recharger le tableau"):
         safe_rerun()
+
+# --- Backup / Restore DB ---
+st.subheader("Sauvegarde / Restauration de la base")
+st.info(f"DB path: {DB_PATH}")
+st.write("DB existe :", DB_PATH.exists())
+if DB_PATH.exists():
+    st.write("Taille (bytes) :", DB_PATH.stat().st_size)
+
+if st.button("Créer un backup local (.db) et proposer le téléchargement"):
+    try:
+        backup_path = export_db()
+        with open(backup_path, "rb") as f:
+            st.download_button("Télécharger le fichier .db", data=f, file_name=backup_path.split("/")[-1])
+    except Exception as e:
+        st.error(f"Erreur backup: {e}")
+
+uploaded_db = st.file_uploader("Restaurer depuis un fichier .db", type=["db"])
+if uploaded_db is not None:
+    tmp = "data/uploaded_restore.db"
+    with open(tmp, "wb") as f:
+        f.write(uploaded_db.getbuffer())
+    if st.button("Restaurer la DB depuis l'upload"):
+        try:
+            import_db(tmp)
+            st.success("Restauration terminée. Rechargez la page pour voir les changements.")
+        except Exception as e:
+            st.error(f"Erreur restauration: {e}")
+
+# --- Afficher historique imports_log ---
+if st.checkbox("Afficher l'historique des imports (imports_log)"):
+    try:
+        conn = _connect()
+        df_log = pd.read_sql_query('SELECT * FROM "imports_log" ORDER BY import_id DESC LIMIT 200', conn)
+        conn.close()
+        if df_log.empty:
+            st.info("Aucun import enregistré.")
+        else:
+            st.dataframe(df_log)
+    except Exception as e:
+        st.error(f"Impossible de lire imports_log: {e}")

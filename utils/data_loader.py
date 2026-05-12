@@ -1,16 +1,24 @@
 # utils/data_loader.py
+import os
 import sqlite3
 from pathlib import Path
 import pandas as pd
-import hashlib, json
+import hashlib
+import json
+import shutil
+import datetime
 from typing import Dict, Optional
 
+# --- Chemin DB configurable et persistant ---
 ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT / "data"
-DATA_DIR.mkdir(exist_ok=True)
+DEFAULT_DATA_DIR = ROOT / "data"
+DATA_DIR = Path(os.environ.get("APP_DATA_DIR", str(DEFAULT_DATA_DIR)))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app_data.db"
 
+# --- Helpers ---
 def _connect():
+    # sqlite3 connection; file DB_PATH
     return sqlite3.connect(str(DB_PATH), timeout=30)
 
 def _row_hash(row: pd.Series) -> str:
@@ -20,9 +28,7 @@ def _row_hash(row: pd.Series) -> str:
 def _prepare_table_name(sheet_name: str) -> str:
     return "sheet_" + "".join(c if c.isalnum() else "_" for c in sheet_name).lower()
 
-# --- remplacer ou coller cette version de ingest_excel dans utils/data_loader.py ---
-import datetime
-
+# --- Ingestion avec imports_log ---
 def ingest_excel(excel_path: str,
                  mapping: Optional[Dict[str, Dict[str, str]]] = None,
                  sheets: Optional[list] = None,
@@ -31,6 +37,7 @@ def ingest_excel(excel_path: str,
     Ingest Excel into SQLite and log the import.
     Returns a summary dict: { sheet_name: {rows_total, inserted}, ... }
     Also writes one row per sheet into imports_log(import_id, source_file, ts, sheet_name, rows_total, inserted).
+    mode: "upsert" or "replace"
     """
     excel_path = Path(excel_path)
     if not excel_path.exists():
@@ -42,8 +49,8 @@ def ingest_excel(excel_path: str,
     conn = _connect()
     summary = {}
     try:
-        # ensure imports_log exists
         cur = conn.cursor()
+        # ensure imports_log exists
         cur.execute('''
             CREATE TABLE IF NOT EXISTS imports_log (
                 import_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,6 +125,7 @@ def ingest_excel(excel_path: str,
 
     return summary
 
+# --- Load functions ---
 def load_table(table_name: str, limit: Optional[int] = None) -> pd.DataFrame:
     table = table_name if table_name.startswith("sheet_") else _prepare_table_name(table_name)
     conn = _connect()
@@ -133,8 +141,6 @@ def load_table(table_name: str, limit: Optional[int] = None) -> pd.DataFrame:
         return df
     finally:
         conn.close()
-
-# utils/data_loader.py
 
 def load_all(include_internal: bool = False) -> Dict[str, pd.DataFrame]:
     """
@@ -155,6 +161,7 @@ def load_all(include_internal: bool = False) -> Dict[str, pd.DataFrame]:
     finally:
         conn.close()
 
+# --- Save / upsert table from DataFrame ---
 def save_table_upsert(table_name: str, df: pd.DataFrame, mode: str = "upsert"):
     table = table_name if table_name.startswith("sheet_") else _prepare_table_name(table_name)
     df = df.copy()
@@ -192,3 +199,33 @@ def save_table_upsert(table_name: str, df: pd.DataFrame, mode: str = "upsert"):
         return {"inserted": len(new_rows), "skipped": len(df) - len(new_rows)}
     finally:
         conn.close()
+
+# --- Export / Import DB (backup / restore) ---
+def export_db(dest_path: str = None) -> str:
+    """
+    Copie app_data.db vers dest_path (ou backups/app_data_<ts>.db si None).
+    Retourne le chemin du fichier créé.
+    """
+    if not DB_PATH.exists():
+        raise FileNotFoundError("DB introuvable")
+    if dest_path is None:
+        dest_dir = DATA_DIR / "backups"
+        dest_dir.mkdir(exist_ok=True)
+        ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        dest = dest_dir / f"app_data_{ts}.db"
+    else:
+        dest = Path(dest_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(DB_PATH, dest)
+    return str(dest)
+
+def import_db(src_path: str) -> str:
+    """
+    Remplace app_data.db par src_path (fichier uploadé/restauré).
+    Retourne le chemin DB_PATH.
+    """
+    src = Path(src_path)
+    if not src.exists():
+        raise FileNotFoundError(src)
+    shutil.copy2(src, DB_PATH)
+    return str(DB_PATH)

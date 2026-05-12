@@ -136,3 +136,21 @@ def ensure_db_exists():
     if not DB_PATH.exists():
         conn = _connect()
         conn.close()
+
+def save_table(table_name: str, df: pd.DataFrame, mode: str = "replace"):
+    """
+    Sauvegarde un DataFrame dans la table SQLite correspondante.
+    - table_name : nom logique (ex: "mesures" ou "regions") ou nom interne "sheet_xxx"
+    - mode : "replace" (par défaut) ou "append"
+    """
+    table = table_name if table_name.startswith("sheet_") else _prepare_table_name(table_name)
+    conn = _connect()
+    try:
+        if mode == "replace":
+            # supprimer et recréer via pandas.to_sql
+            df.to_sql(table, conn, if_exists="replace", index=False)
+        else:
+            df.to_sql(table, conn, if_exists="append", index=False)
+    finally:
+        conn.close()
+

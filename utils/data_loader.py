@@ -134,12 +134,20 @@ def load_table(table_name: str, limit: Optional[int] = None) -> pd.DataFrame:
     finally:
         conn.close()
 
-def load_all() -> Dict[str, pd.DataFrame]:
+# utils/data_loader.py
+
+def load_all(include_internal: bool = False) -> Dict[str, pd.DataFrame]:
+    """
+    Retourne toutes les tables importées.
+    - include_internal=False (par défaut) exclut les tables SQLite internes (sqlite_*)
+    """
     conn = _connect()
     try:
         cur = conn.cursor()
         cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = [r[0] for r in cur.fetchall()]
+        if not include_internal:
+            tables = [t for t in tables if not t.startswith("sqlite_")]
         res = {}
         for t in tables:
             res[t] = pd.read_sql_query(f'SELECT * FROM "{t}"', conn)

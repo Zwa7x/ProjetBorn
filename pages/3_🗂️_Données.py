@@ -15,14 +15,27 @@ if uploaded:
         try:
             ingest_excel(tmp, mode="upsert")
             st.success("Ingestion terminée")
-            st.experimental_rerun()
+            st.info("Cliquez sur le bouton Recharger ci‑dessous pour actualiser l'affichage.")
         except Exception as e:
             st.error(f"Erreur d'ingestion: {e}")
 
+# bouton de rechargement sûr (fallback si experimental_rerun absent)
+def safe_rerun():
+    if hasattr(st, "experimental_rerun"):
+        try:
+            st.experimental_rerun()
+        except Exception:
+            st.info("Impossible de forcer le rechargement automatiquement. Rechargez la page manuellement.")
+    else:
+        st.info("Votre version de Streamlit ne supporte pas st.experimental_rerun. Rechargez la page manuellement.")
+
+if st.button("🔄 Recharger l'affichage"):
+    safe_rerun()
+
 # --- Tables et mapping ---
 st.subheader("Tables importées")
-tables = list(load_all().keys())
-st.write("Tables détectées :", tables)
+all_tables = list(load_all().keys())
+st.write("Tables détectées :", all_tables)
 
 st.subheader("Mapping informatif (exemple)")
 mapping_example = {
@@ -36,13 +49,22 @@ st.markdown("""
 - Optionnel : séparer `regions` en table `regions(id, region, acronyme)` et référencer via `region_id`.
 """)
 
-# --- Choix de la table à afficher ---
-table_choice = st.selectbox("Choisir une table à afficher", ["feuil1", "mesures", "regions"] + tables)
+# --- Choix de la table à afficher (robuste) ---
+# proposer d'abord des noms logiques, puis les tables détectées
+suggested = ["mesures", "regions", "feuil1"]
+candidates = [t for t in suggested if t in all_tables] + [t for t in all_tables if t not in suggested]
+if not candidates:
+    st.warning("Aucune table trouvée. Ingestez d'abord le fichier Excel.")
+    st.stop()
+
+table_choice = st.selectbox("Choisir une table à afficher", candidates, index=0)
+
+# charger la table choisie (fallback : première table si nom non trouvé)
 try:
     df = load_table(table_choice)
 except Exception as e:
-    st.error(f"Impossible de charger la table: {e}")
-    st.stop()
+    st.warning(f"Table '{table_choice}' introuvable, tentative avec la première table détectée.")
+    df = load_table(all_tables[0])
 
 # --- Tableau éditable ---
 st.subheader("Tableau éditable")
@@ -54,5 +76,5 @@ with col1:
         res = save_table_upsert(table_choice, edited_df, mode="upsert")
         st.success(f"Sauvegarde terminée : {res}")
 with col2:
-    if st.button("🔄 Recharger"):
-        st.experimental_rerun()
+    if st.button("🔄 Recharger le tableau"):
+        safe_rerun()

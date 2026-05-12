@@ -1,28 +1,48 @@
-# utils/__init__.py
-"""
-Exports publics du package utils.
-Les fonctions sont importées à la demande pour éviter les import-circulaires
-et pour que l'import du package ne casse pas si un module lève une erreur.
-"""
+# pages/99_debug_temp.py
+import streamlit as st
+import traceback
 
-import importlib
-from typing import Any
+st.set_page_config(page_title="DEBUG TEMP", layout="wide")
+st.title("DEBUG TEMPORAIRE — Diagnostics utils / data")
 
-__all__ = ["load_settings", "save_settings", "load_data", "save_data"]
+st.markdown("**But** : vérifier import utils, load_settings(), load_data() et afficher les erreurs complètes.")
 
-# wrappers lazy : importent le module au moment de l'appel
-def load_settings(*args, **kwargs) -> Any:
-    mod = importlib.import_module(".settings_loader", __package__)
-    return getattr(mod, "load_settings")(*args, **kwargs)
+try:
+    import utils
+    st.success("Module `utils` importé")
+    st.write("utils.__file__:", getattr(utils, "__file__", "n/a"))
+except Exception as e:
+    st.error("Erreur à l'import de `utils` : " + str(e))
+    st.text(traceback.format_exc())
+    st.stop()
 
-def save_settings(*args, **kwargs) -> Any:
-    mod = importlib.import_module(".settings_loader", __package__)
-    return getattr(mod, "save_settings")(*args, **kwargs)
+# Tester load_settings
+st.header("load_settings()")
+try:
+    s = utils.load_settings()
+    st.success("load_settings() OK")
+    st.write("Clés racine:", list(s.keys()) if isinstance(s, dict) else type(s))
+    st.write("Aperçu regions:", list(s.get("regions", {}).keys()) if isinstance(s, dict) else "n/a")
+except Exception as e:
+    st.error("Erreur lors de load_settings(): " + str(e))
+    st.text(traceback.format_exc())
 
-def load_data(*args, **kwargs) -> Any:
-    mod = importlib.import_module(".data_loader", __package__)
-    return getattr(mod, "load_data")(*args, **kwargs)
+# Tester load_data
+st.header("load_data()")
+try:
+    if hasattr(utils, "load_data") and callable(utils.load_data):
+        df = utils.load_data()
+        st.success("load_data() OK")
+        try:
+            st.write("Aperçu dataframe (head):")
+            st.dataframe(df.head(20))
+        except Exception:
+            st.write("Retour non-dataframe :", type(df))
+    else:
+        st.error("utils.load_data n'est pas défini ou n'est pas callable.")
+except Exception as e:
+    st.error("Erreur lors de load_data(): " + str(e))
+    st.text(traceback.format_exc())
 
-def save_data(*args, **kwargs) -> Any:
-    mod = importlib.import_module(".data_loader", __package__)
-    return getattr(mod, "save_data")(*args, **kwargs)
+st.markdown("---")
+st.write("Quand tu as fini, supprime ce fichier `pages/99_debug_temp.py` pour le retirer du menu.")

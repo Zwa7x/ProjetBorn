@@ -8,7 +8,7 @@ df = load_table("mesures")            # charge la table
 save_result = save_table_upsert("mesures", edited_df, mode="upsert")
 st.write(save_result)                 # affiche {"inserted": X, "skipped": Y}
 
-ingest_excel("data/source.xlsx", mode="upsert")
+ingest_excel("data/CONSO_CUPRA.xlsx", mode="upsert")
 # ou pour une table spécifique après modification en mémoire
 save_table_upsert("regions", df_regions, mode="upsert")
 

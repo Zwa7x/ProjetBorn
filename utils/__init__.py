@@ -17,9 +17,14 @@ def save_settings(*args, **kwargs) -> Any:
     mod = importlib.import_module(".settings_loader", __package__)
     return getattr(mod, "save_settings")(*args, **kwargs)
 
-def load_data(*args, **kwargs) -> Any:
+def load_data(*a, **k):
     mod = importlib.import_module(".data_loader", __package__)
-    return getattr(mod, "load_data")(*args, **kwargs)
+    # exemple : renvoyer la table principale "mesures" si elle existe
+    try:
+        return mod.load_table("mesures")
+    except Exception:
+        # fallback : renvoyer toutes les tables
+        return mod.load_all()
 
 def save_data(*args, **kwargs) -> Any:
     mod = importlib.import_module(".data_loader", __package__)
